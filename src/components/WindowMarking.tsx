@@ -15,6 +15,7 @@ const TYPE_OPTIONS: Array<{ type: WindowType; label: string; hint: string }> = [
   { type: "floor", label: "落地窗", hint: "窗底 0.0m / 開口高 2.1m" },
   { type: "normal", label: "一般窗", hint: "窗底 0.9m / 開口高 1.2m" },
   { type: "high", label: "氣窗", hint: "窗底 1.8m / 開口高 0.6m" },
+  { type: "balcony", label: "陽台窗", hint: "窗底 0.9m / 上緣到頂" },
 ];
 
 export function WindowMarking({

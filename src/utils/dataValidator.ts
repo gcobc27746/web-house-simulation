@@ -97,7 +97,8 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
       typeof openingValue.wallId !== "string" ||
       (openingValue.type !== "floor" &&
         openingValue.type !== "normal" &&
-        openingValue.type !== "high") ||
+        openingValue.type !== "high" &&
+        openingValue.type !== "balcony") ||
       !isFiniteNumber(openingValue.startOffset) ||
       !isFiniteNumber(openingValue.endOffset) ||
       !isFiniteNumber(openingValue.width) ||

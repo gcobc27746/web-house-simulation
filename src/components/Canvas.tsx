@@ -219,6 +219,7 @@ export function Canvas({
   const getWindowColor = (type: WindowType) => {
     if (type === "floor") return "#8e44ff";
     if (type === "high") return "#ff5f5f";
+    if (type === "balcony") return "#00a0ff";
     return "#00a36c";
   };
 

@@ -160,10 +160,10 @@ export function buildWallMeshes(
     }
 
     const openingBottom = Math.max(0, windowOpening.sillHeight);
-    const openingTop = Math.min(
-      ceilingHeight,
-      windowOpening.sillHeight + windowOpening.openingHeight,
-    );
+    const openingTop =
+      windowOpening.type === "balcony"
+        ? ceilingHeight
+        : Math.min(ceilingHeight, windowOpening.sillHeight + windowOpening.openingHeight);
     if (openingTop - openingBottom <= EPSILON) {
       errors.push({
         code: "WINDOW_OUTSIDE_WALL_HEIGHT",

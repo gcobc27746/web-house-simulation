@@ -17,6 +17,7 @@ export const WINDOW_PRESETS: Record<WindowType, WindowPreset> = {
   floor: { sillHeight: 0, openingHeight: 2.1, label: "落地窗" },
   normal: { sillHeight: 0.9, openingHeight: 1.2, label: "一般窗" },
   high: { sillHeight: 1.8, openingHeight: 0.6, label: "氣窗" },
+  balcony: { sillHeight: 0.9, openingHeight: 9, label: "陽台窗" },
 };
 
 const createWindowId = () =>

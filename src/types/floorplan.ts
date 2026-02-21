@@ -33,7 +33,7 @@ export interface FloorplanPolygon {
   closed: boolean;
 }
 
-export type WindowType = "floor" | "normal" | "high";
+export type WindowType = "floor" | "normal" | "high" | "balcony";
 
 export interface WindowOpening {
   id: string;

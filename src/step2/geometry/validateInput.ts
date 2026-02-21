@@ -119,10 +119,10 @@ export function validateGeometryInput(
     }
 
     const openingBottom = Math.max(0, windowOpening.sillHeight);
-    const openingTop = Math.min(
-      options.ceilingHeight,
-      windowOpening.sillHeight + windowOpening.openingHeight,
-    );
+    const openingTop =
+      windowOpening.type === "balcony"
+        ? options.ceilingHeight
+        : Math.min(options.ceilingHeight, windowOpening.sillHeight + windowOpening.openingHeight);
     if (openingTop - openingBottom <= MIN_DIMENSION_EPSILON) {
       errors.push({
         code: "WINDOW_OUTSIDE_WALL_HEIGHT",
