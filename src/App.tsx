@@ -42,6 +42,8 @@ export default function App() {
   const [cameraHeight, setCameraHeight] = useState(1.7);
   const [moveSpeed, setMoveSpeed] = useState(2.8);
   const [lookSensitivity, setLookSensitivity] = useState(1);
+  const [collisionRadius, setCollisionRadius] = useState(0.25);
+  const [showCollisionDebug, setShowCollisionDebug] = useState(false);
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const calibration = useScaleCalibration();
   const wallDrawing = useWallDrawing();
@@ -313,7 +315,7 @@ export default function App() {
         onCancel={onCancelDistance}
       />
       <section className="panel">
-        <h2>Step2 2.5 Camera & Controls</h2>
+        <h2>Step2 2.6 Collision & Boundaries</h2>
         <div className="geometry-settings">
           <label>
             天花板高度 (m)
@@ -368,6 +370,25 @@ export default function App() {
               onChange={(event) => setLookSensitivity(Number(event.target.value) || 0)}
             />
           </label>
+          <label>
+            碰撞半徑 (m)
+            <input
+              type="number"
+              min={0.1}
+              max={1}
+              step={0.01}
+              value={collisionRadius}
+              onChange={(event) => setCollisionRadius(Number(event.target.value) || 0)}
+            />
+          </label>
+          <label className="geometry-checkbox">
+            <input
+              type="checkbox"
+              checked={showCollisionDebug}
+              onChange={(event) => setShowCollisionDebug(event.target.checked)}
+            />
+            顯示碰撞邊界 debug
+          </label>
         </div>
         <GeometryPreview
           floorplanData={floorplanData}
@@ -376,6 +397,8 @@ export default function App() {
           cameraHeight={cameraHeight}
           moveSpeed={moveSpeed}
           lookSensitivity={lookSensitivity}
+          collisionRadius={collisionRadius}
+          showCollisionDebug={showCollisionDebug}
         />
       </section>
 

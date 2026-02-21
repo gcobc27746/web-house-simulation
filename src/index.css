@@ -292,6 +292,13 @@ body {
   font-size: 14px;
 }
 
+.geometry-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+
 .geometry-preview h3 {
   margin: 0 0 10px;
 }
@@ -306,6 +313,15 @@ body {
 .pointer-lock-hint {
   margin: 6px 0;
   color: #44506a;
+}
+
+.collision-status.clear {
+  color: #2f6f2f;
+}
+
+.collision-status.hit {
+  color: #9e2f2f;
+  font-weight: 600;
 }
 
 .geometry-canvas {

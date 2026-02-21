@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import type { FloorplanData } from "../../types/floorplan";
+import { buildCollisionData, resolveMovement } from "../collision";
 import { buildGeometryFromFloorplan } from "../geometry";
 
 interface GeometryPreviewProps {
@@ -11,6 +12,8 @@ interface GeometryPreviewProps {
   cameraHeight: number;
   moveSpeed: number;
   lookSensitivity: number;
+  collisionRadius: number;
+  showCollisionDebug: boolean;
 }
 
 const RENDER_BG = 0xf4f7ff;
@@ -42,12 +45,15 @@ export function GeometryPreview({
   cameraHeight,
   moveSpeed,
   lookSensitivity,
+  collisionRadius,
+  showCollisionDebug,
 }: GeometryPreviewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const contentRootRef = useRef<THREE.Group | null>(null);
+  const debugRootRef = useRef<THREE.Group | null>(null);
   const controlsRef = useRef<PointerLockControls | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const previousTimestampRef = useRef<number | null>(null);
@@ -62,9 +68,32 @@ export function GeometryPreview({
   });
   const lastSceneCenterRef = useRef(new THREE.Vector3(0, 0, 0));
   const previewLookAtRef = useRef(new THREE.Vector3(0, 0, 0));
+  const collisionDataRef = useRef(buildCollisionData([]));
+  const collisionHitRef = useRef(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [isFirstPersonMode, setIsFirstPersonMode] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
+  const [isCollisionHit, setIsCollisionHit] = useState(false);
+
+  const rebuildDebugVisuals = () => {
+    const debugRoot = debugRootRef.current;
+    if (!debugRoot) return;
+
+    while (debugRoot.children.length > 0) {
+      const child = debugRoot.children[0];
+      debugRoot.remove(child);
+      child.traverse(disposeObject3D);
+    }
+
+    if (!showCollisionDebug) return;
+    for (const wall of collisionDataRef.current.walls) {
+      const min = new THREE.Vector3(wall.aabbMin.x, wall.minY, wall.aabbMin.y);
+      const max = new THREE.Vector3(wall.aabbMax.x, wall.maxY, wall.aabbMax.y);
+      const helperColor = wall.source === "window" ? 0x16a34a : 0xf97316;
+      const helper = new THREE.Box3Helper(new THREE.Box3(min, max), helperColor);
+      debugRoot.add(helper);
+    }
+  };
 
   const renderScene = () => {
     const scene = sceneRef.current;
@@ -125,6 +154,8 @@ export function GeometryPreview({
 
     const contentRoot = new THREE.Group();
     scene.add(contentRoot);
+    const debugRoot = new THREE.Group();
+    scene.add(debugRoot);
 
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = lookSensitivity;
@@ -166,6 +197,7 @@ export function GeometryPreview({
     cameraRef.current = camera;
     rendererRef.current = renderer;
     contentRootRef.current = contentRoot;
+    debugRootRef.current = debugRoot;
     controlsRef.current = controls;
     shouldAnimateRef.current = true;
 
@@ -202,8 +234,26 @@ export function GeometryPreview({
 
         if (moveDirection.lengthSq() > 0) {
           moveDirection.normalize();
-          camera.position.addScaledVector(moveDirection, moveSpeed * delta);
-          camera.position.y = cameraHeight;
+          const predictedPosition = camera.position
+            .clone()
+            .addScaledVector(moveDirection, moveSpeed * delta);
+          predictedPosition.y = cameraHeight;
+
+          const movementResult = resolveMovement({
+            currentPosition: camera.position,
+            predictedPosition,
+            collisionRadius,
+            collisionData: collisionDataRef.current,
+          });
+          camera.position.copy(movementResult.position);
+
+          if (collisionHitRef.current !== movementResult.hit) {
+            collisionHitRef.current = movementResult.hit;
+            setIsCollisionHit(movementResult.hit);
+          }
+        } else if (collisionHitRef.current) {
+          collisionHitRef.current = false;
+          setIsCollisionHit(false);
         }
       }
 
@@ -237,7 +287,9 @@ export function GeometryPreview({
       controls.unlock();
       resizeObserver.disconnect();
       contentRoot.traverse(disposeObject3D);
+      debugRoot.traverse(disposeObject3D);
       scene.remove(contentRoot);
+      scene.remove(debugRoot);
       if (renderer.domElement.parentElement === mountElement) {
         mountElement.removeChild(renderer.domElement);
       }
@@ -247,9 +299,10 @@ export function GeometryPreview({
       cameraRef.current = null;
       rendererRef.current = null;
       contentRootRef.current = null;
+      debugRootRef.current = null;
       controlsRef.current = null;
     };
-  }, [cameraHeight, lookSensitivity, moveSpeed]);
+  }, [cameraHeight, collisionRadius, lookSensitivity, moveSpeed]);
 
   useEffect(() => {
     if (controlsRef.current) {
@@ -280,6 +333,12 @@ export function GeometryPreview({
     for (const wallEntry of result.wallMeshes) {
       contentRoot.add(wallEntry.mesh);
     }
+    collisionDataRef.current = buildCollisionData(result.wallMeshes, {
+      floorplanData,
+      wallThickness,
+      ceilingHeight,
+    });
+    rebuildDebugVisuals();
 
     if (contentRoot.children.length > 0) {
       const bounds = new THREE.Box3().setFromObject(contentRoot);
@@ -302,7 +361,12 @@ export function GeometryPreview({
 
     setErrors(result.errors.map((error) => error.message));
     renderScene();
-  }, [ceilingHeight, floorplanData, wallThickness]);
+  }, [ceilingHeight, floorplanData, showCollisionDebug, wallThickness]);
+
+  useEffect(() => {
+    rebuildDebugVisuals();
+    renderScene();
+  }, [showCollisionDebug]);
 
   useEffect(() => {
     const camera = cameraRef.current;
@@ -311,6 +375,8 @@ export function GeometryPreview({
     if (isFirstPersonMode) {
       resetFirstPersonPose();
     } else {
+      collisionHitRef.current = false;
+      setIsCollisionHit(false);
       resetToPreviewCamera();
       if (controlsRef.current?.isLocked) {
         controlsRef.current.unlock();
@@ -347,7 +413,7 @@ export function GeometryPreview({
 
   return (
     <section className="panel geometry-preview">
-      <h3>Step2 2.5 相機與控制</h3>
+      <h3>Step2 2.6 碰撞與邊界阻擋</h3>
       <div className="geometry-toolbar">
         <button type="button" className="btn" onClick={onToggleFirstPersonMode}>
           {isFirstPersonMode ? "退出第一人稱" : "進入第一人稱"}
@@ -358,6 +424,9 @@ export function GeometryPreview({
       </div>
       <p className="pointer-lock-hint">
         狀態：{isPointerLocked ? "已鎖定游標（WASD + 滑鼠）" : "未鎖定游標"}
+      </p>
+      <p className={`pointer-lock-hint collision-status ${isCollisionHit ? "hit" : "clear"}`}>
+        碰撞：{isCollisionHit ? "hit" : "no-hit"}
       </p>
       <p className="pointer-lock-hint">
         操作提示：按「進入第一人稱」後點擊畫面，滑鼠控制視角，WASD 移動，Esc 退出。
