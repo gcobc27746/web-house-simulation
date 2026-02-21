@@ -1,68 +1,52 @@
 # 步驟 2：2D → 3D 轉換與空間瀏覽（3D Viewer）
 
-## 核心理念
-
-**3D 階段解決「空間尺度感 + 走動體驗」**
-
-本產品的核心目標，不是建立華麗的 3D 模型，而是建立一個「可被信任」的空間決策工具。
-
-3D 階段的價值在於：
-
-* 驗證空間尺度感
-* 驗證走動與視角體驗
-* 提供可重複檢視的沉浸式空間瀏覽
+> 文件索引：本檔已拆解成「先備知識」與「執行階段」兩類，方便 AI 逐步執行。
 
 ---
 
-## 主要目的
+## 文件結構
 
-將已建立的 2D 外框 polygon 轉換為 3D 空間模型，並提供可控制攝影機的沉浸式瀏覽功能。
+### 先備知識（先閱讀）
 
-本階段解決的核心問題為：
+位於 `docs/Step2/先備知識/`：
 
-* 空間尺度感是否合理
-* 走動時的壓迫感與開闊感
-* 牆高與比例是否符合預期
+- **2.1** [01_Overview.md](./Step2/先備知識/01_Overview.md)
+- **2.2** [02_InputContract.md](./Step2/先備知識/02_InputContract.md)
+- **2.3** [03_3DTechnicalSpec.md](./Step2/先備知識/03_3DTechnicalSpec.md)
 
----
+### 執行階段（依序）
 
-## 使用流程
+位於 `docs/Step2/執行階段/`：
 
-1. 使用者輸入天花板高度（Ceiling Height）
-2. 系統根據 2D polygon 生成：
-
-   * 地板
-   * 牆體（依設定牆厚向內或向上拉伸）
-3. 建立第一人稱攝影機
-4. 提供 WASD + 滑鼠視角控制
-5. 啟用碰撞偵測，避免穿牆
+- **2.4** [04_GeometryGeneration.md](./Step2/執行階段/04_GeometryGeneration.md)
+- **2.5** [05_CameraAndControls.md](./Step2/執行階段/05_CameraAndControls.md)
+- **2.6** [06_CollisionAndBoundaries.md](./Step2/執行階段/06_CollisionAndBoundaries.md)
+- **2.7** [07_IntegrationAndPerformance.md](./Step2/執行階段/07_IntegrationAndPerformance.md)
+- **2.8** [08_AcceptanceCriteria.md](./Step2/執行階段/08_AcceptanceCriteria.md)
 
 ---
 
-## 生成原則
+## AI 建議執行順序
 
-* 所有 3D 幾何均來自 2D 結構資料
-* 不依賴原始圖片
-* 不進行任何自動推測
-* 僅基於使用者明確定義的向量資料進行 extrusion
+1. 先讀完 `2.1` ~ `2.3`
+2. 依序執行 `2.4 -> 2.5 -> 2.6 -> 2.7`
+3. 最後依 `2.8` 做驗收
+
+```mermaid
+flowchart TD
+  pre1["2.1 Overview"] --> pre2["2.2 InputContract"]
+  pre2 --> pre3["2.3 TechnicalSpec"]
+  pre3 --> task4["2.4 GeometryGeneration"]
+  task4 --> task5["2.5 CameraAndControls"]
+  task5 --> task6["2.6 CollisionAndBoundaries"]
+  task6 --> task7["2.7 IntegrationAndPerformance"]
+  task7 --> task8["2.8 AcceptanceCriteria"]
+```
 
 ---
 
-## 本階段完成後應達成目標
+## 拆解原則
 
-* 可正確生成牆高與牆厚
-* 可流暢瀏覽空間
-* 相機高度預設 1.7m（可調整）
-* 空間比例與 2D 一致
-
----
-
-## 資料輸入格式
-
-本功能依賴步驟 1 產生的 JSON 結構資料，需包含：
-
-* floorplan scale（px → meter）
-* wall segments / polygon 頂點資料（公尺單位）
-* wall thickness
-
-所有座標應為公尺單位，確保 3D 階段不依賴圖片。
+- 每份任務單只處理一個核心能力
+- 每份任務單都有前置條件、輸入/輸出、完成標準
+- 先可用，再優化，確保可逐步交付
