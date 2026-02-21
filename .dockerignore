@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+*.md
+.cursor
+.vscode
+.idea
+*.log
+.DS_Store
+coverage
+.nyc_output
+*.tsbuildinfo
