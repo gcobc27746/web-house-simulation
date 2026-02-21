@@ -15,6 +15,8 @@ import type { LoadedImagePayload } from "./hooks/useImageUpload";
 import type { FloorplanData } from "./types/floorplan";
 
 const nowIso = () => new Date().toISOString();
+type ViewMode = "design" | "viewer";
+type ToolMode = "upload" | "calibrate" | "wall" | "layers" | "settings";
 
 function createInitialData(): FloorplanData {
   const createdAt = nowIso();
@@ -45,6 +47,15 @@ export default function App() {
   const [collisionRadius, setCollisionRadius] = useState(0.25);
   const [showCollisionDebug, setShowCollisionDebug] = useState(false);
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
+  const [activeView, setActiveView] = useState<ViewMode>("design");
+  const [activeTool, setActiveTool] = useState<ToolMode>("upload");
+  const [canvasStatus, setCanvasStatus] = useState<{
+    cursor: { x: number; y: number } | null;
+    zoomPercent: number;
+  }>({
+    cursor: null,
+    zoomPercent: 100,
+  });
   const calibration = useScaleCalibration();
   const wallDrawing = useWallDrawing();
   const windowMarking = useWindowMarking();
@@ -183,248 +194,277 @@ export default function App() {
   }, [floorplanData.image]);
 
   return (
-    <main className="layout">
-      <header className="header">
-        <h1>Step1 - Floorplan Calibration</h1>
-        <p>React + TypeScript + react-konva</p>
+    <main className="flex h-screen flex-col overflow-hidden bg-background-dark text-slate-100">
+      <header className="z-40 flex items-center justify-between border-b border-border-dark bg-surface-darker px-6 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
+            <span className="material-symbols-outlined">architecture</span>
+          </div>
+          <div>
+            <h1 className="text-base font-bold">SpatialPlanner</h1>
+            <p className="text-xs text-slate-400">Project: Floorplan Simulation</p>
+          </div>
+        </div>
+        <div className="hidden rounded-lg border border-border-dark bg-surface-dark p-1 md:flex">
+          <button
+            type="button"
+            className={`rounded px-4 py-1.5 text-sm font-medium transition ${
+              activeView === "design"
+                ? "bg-primary/20 text-primary"
+                : "text-slate-400 hover:text-white"
+            }`}
+            onClick={() => setActiveView("design")}
+          >
+            Design
+          </button>
+          <button
+            type="button"
+            className={`rounded px-4 py-1.5 text-sm font-medium transition ${
+              activeView === "viewer"
+                ? "bg-primary/20 text-primary"
+                : "text-slate-400 hover:text-white"
+            }`}
+            onClick={() => setActiveView("viewer")}
+          >
+            3D View
+          </button>
+        </div>
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 py-2 text-sm font-semibold text-white"
+          onClick={() => setActiveView(activeView === "design" ? "viewer" : "design")}
+        >
+          <span className="material-symbols-outlined text-base">swap_horiz</span>
+          {activeView === "design" ? "前往 3D" : "回到 2D"}
+        </button>
       </header>
 
-      <ImageUpload onImageLoaded={onImageLoaded} />
-      <StorageControls
-        onExport={storage.exportJSON}
-        onImport={storage.importJSON}
-        onClear={() => {
-          const confirmed = window.confirm("確定要清除本地資料嗎？此動作無法復原。");
-          if (!confirmed) return;
-          storage.clearStorage();
-          calibration.resetCalibration();
-          wallDrawing.resetWalls();
-          windowMarking.resetWindows();
-          setUploadedImage(null);
-          setIsDistanceDialogOpen(false);
-          setFloorplanData(createInitialData());
-        }}
-      />
-      {storage.status && (
-        <section className={`panel storage-status ${storage.status.type}`}>
-          <p>{storage.status.message}</p>
-          <button type="button" className="btn btn-link" onClick={storage.clearStatus}>
-            關閉
-          </button>
-        </section>
-      )}
-      <ScaleCalibration
-        canCalibrate={Boolean(uploadedImage)}
-        isCalibrationMode={calibration.isCalibrationMode}
-        measurementPointsCount={calibration.measurementPoints.length}
-        pixelDistance={measurementDistancePx}
-        scale={calibration.scale}
-        onStartCalibration={() => {
-          wallDrawing.stopDrawing();
-          setIsDistanceDialogOpen(false);
-          calibration.startCalibration();
-        }}
-        onResetCalibration={onResetCalibration}
-      />
-      <div className="editor-layout">
-        <WallDrawing
-          canDraw={Boolean(uploadedImage && calibration.scale)}
-          isDrawingMode={wallDrawing.isDrawingMode}
-          isContinuousMode={wallDrawing.isContinuousMode}
-          wallsCount={wallDrawing.walls.length}
-          polygonsCount={wallDrawing.polygons.length}
-          selectedWallId={wallDrawing.selectedWallId}
-          canUndo={wallDrawing.canUndo}
-          canRedo={wallDrawing.canRedo}
-          onToggleDrawingMode={() => {
-            setIsDistanceDialogOpen(false);
-            calibration.stopCalibrationMode();
-            windowMarking.stopWindowMode();
-            windowMarking.cancelDraft();
-            if (wallDrawing.isDrawingMode) {
-              wallDrawing.cancelCurrentWall();
-              wallDrawing.stopDrawing();
-            } else {
-              if (calibration.scale) {
-                wallDrawing.startDrawing();
-              }
-            }
-          }}
-          onToggleContinuousMode={wallDrawing.setContinuousMode}
-          onUndo={wallDrawing.undo}
-          onRedo={wallDrawing.redo}
-          onDeleteSelected={() => {
-            if (!wallDrawing.selectedWallId) return;
-            wallDrawing.deleteWall(wallDrawing.selectedWallId);
-          }}
-          windowControls={
-            <WindowMarking
-              canMark={Boolean(uploadedImage && calibration.scale && wallDrawing.walls.length > 0)}
-              isWindowMode={windowMarking.isWindowMode}
-              selectedType={windowMarking.selectedType}
-              windowsCount={windowMarking.windows.length}
-              selectedWindowId={windowMarking.selectedWindowId}
-              onToggleWindowMode={() => {
-                setIsDistanceDialogOpen(false);
-                calibration.stopCalibrationMode();
-                wallDrawing.cancelCurrentWall();
-                wallDrawing.stopDrawing();
-                if (windowMarking.isWindowMode) {
+      {activeView === "design" ? (
+        <div className="flex min-h-0 flex-1">
+          <aside className="flex w-[72px] flex-col items-center border-r border-border-dark bg-surface-darker py-4">
+            {[
+              { key: "upload", icon: "upload_file", label: "上傳" },
+              { key: "calibrate", icon: "straighten", label: "校正" },
+              { key: "wall", icon: "edit", label: "牆線" },
+              { key: "layers", icon: "layers", label: "圖層" },
+              { key: "settings", icon: "settings", label: "設定" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                title={item.label}
+                className={`mb-2 flex size-10 items-center justify-center rounded-xl transition ${
+                  activeTool === item.key
+                    ? "bg-primary/20 text-primary ring-1 ring-primary/30"
+                    : "text-slate-400 hover:bg-surface-dark hover:text-white"
+                }`}
+                onClick={() => setActiveTool(item.key as ToolMode)}
+              >
+                <span className="material-symbols-outlined">{item.icon}</span>
+              </button>
+            ))}
+          </aside>
+
+          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#0d1218]">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <Canvas
+                className="h-full"
+                image={uploadedImage}
+                isCalibrationMode={calibration.isCalibrationMode}
+                measurementPoints={calibration.measurementPoints}
+                scale={calibration.scale}
+                onAddMeasurementPoint={calibration.addMeasurementPoint}
+                isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
+                walls={wallDrawing.walls}
+                polygons={wallDrawing.polygons}
+                selectedWallId={wallDrawing.selectedWallId}
+                currentWall={wallDrawing.currentWall}
+                onBeginWall={wallDrawing.beginWall}
+                onUpdateCurrentWall={wallDrawing.updateCurrentWall}
+                onCompleteCurrentWall={wallDrawing.completeCurrentWall}
+                onSelectWall={wallDrawing.selectWall}
+                onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
+                isWindowMode={windowMarking.isWindowMode}
+                windows={windowMarking.windows}
+                selectedWindowId={windowMarking.selectedWindowId}
+                selectedWindowType={windowMarking.selectedType}
+                onAddWindowByOffsets={windowMarking.addWindowByOffsets}
+                onSelectWindow={windowMarking.selectWindow}
+                onCanvasStatusChange={setCanvasStatus}
+              />
+            </div>
+            <div className="flex h-8 items-center justify-between border-t border-border-dark bg-surface-darker px-4 text-xs text-slate-400">
+              <div className="flex items-center gap-4">
+                <span>
+                  X: {canvasStatus.cursor ? canvasStatus.cursor.x.toFixed(0) : "--"} Y:{" "}
+                  {canvasStatus.cursor ? canvasStatus.cursor.y.toFixed(0) : "--"}
+                </span>
+                <span>Unit: Metric</span>
+              </div>
+              <span className="font-mono">{canvasStatus.zoomPercent}%</span>
+            </div>
+          </section>
+
+          <aside className="w-80 overflow-y-auto border-l border-border-dark bg-surface-darker p-4">
+            {activeTool === "upload" && (
+              <>
+                <ImageUpload onImageLoaded={onImageLoaded} />
+                <StorageControls
+                  onExport={storage.exportJSON}
+                  onImport={storage.importJSON}
+                  onClear={() => {
+                    const confirmed = window.confirm("確定要清除本地資料嗎？此動作無法復原。");
+                    if (!confirmed) return;
+                    storage.clearStorage();
+                    calibration.resetCalibration();
+                    wallDrawing.resetWalls();
+                    windowMarking.resetWindows();
+                    setUploadedImage(null);
+                    setIsDistanceDialogOpen(false);
+                    setFloorplanData(createInitialData());
+                  }}
+                />
+              </>
+            )}
+
+            {activeTool === "calibrate" && (
+              <ScaleCalibration
+                canCalibrate={Boolean(uploadedImage)}
+                isCalibrationMode={calibration.isCalibrationMode}
+                measurementPointsCount={calibration.measurementPoints.length}
+                pixelDistance={measurementDistancePx}
+                scale={calibration.scale}
+                onStartCalibration={() => {
+                  wallDrawing.stopDrawing();
+                  setIsDistanceDialogOpen(false);
+                  calibration.startCalibration();
+                }}
+                onResetCalibration={onResetCalibration}
+              />
+            )}
+
+            {activeTool === "wall" && (
+              <WallDrawing
+                canDraw={Boolean(uploadedImage && calibration.scale)}
+                isDrawingMode={wallDrawing.isDrawingMode}
+                isContinuousMode={wallDrawing.isContinuousMode}
+                wallsCount={wallDrawing.walls.length}
+                polygonsCount={wallDrawing.polygons.length}
+                selectedWallId={wallDrawing.selectedWallId}
+                canUndo={wallDrawing.canUndo}
+                canRedo={wallDrawing.canRedo}
+                onToggleDrawingMode={() => {
+                  setIsDistanceDialogOpen(false);
+                  calibration.stopCalibrationMode();
                   windowMarking.stopWindowMode();
                   windowMarking.cancelDraft();
-                } else if (uploadedImage && calibration.scale && wallDrawing.walls.length > 0) {
-                  windowMarking.startWindowMode();
+                  if (wallDrawing.isDrawingMode) {
+                    wallDrawing.cancelCurrentWall();
+                    wallDrawing.stopDrawing();
+                  } else if (calibration.scale) {
+                    wallDrawing.startDrawing();
+                  }
+                }}
+                onToggleContinuousMode={wallDrawing.setContinuousMode}
+                onUndo={wallDrawing.undo}
+                onRedo={wallDrawing.redo}
+                onDeleteSelected={() => {
+                  if (!wallDrawing.selectedWallId) return;
+                  wallDrawing.deleteWall(wallDrawing.selectedWallId);
+                }}
+                windowControls={
+                  <WindowMarking
+                    canMark={Boolean(uploadedImage && calibration.scale && wallDrawing.walls.length > 0)}
+                    isWindowMode={windowMarking.isWindowMode}
+                    selectedType={windowMarking.selectedType}
+                    windowsCount={windowMarking.windows.length}
+                    selectedWindowId={windowMarking.selectedWindowId}
+                    onToggleWindowMode={() => {
+                      setIsDistanceDialogOpen(false);
+                      calibration.stopCalibrationMode();
+                      wallDrawing.cancelCurrentWall();
+                      wallDrawing.stopDrawing();
+                      if (windowMarking.isWindowMode) {
+                        windowMarking.stopWindowMode();
+                        windowMarking.cancelDraft();
+                      } else if (uploadedImage && calibration.scale && wallDrawing.walls.length > 0) {
+                        windowMarking.startWindowMode();
+                      }
+                    }}
+                    onSelectType={windowMarking.setWindowType}
+                    onDeleteSelectedWindow={() => {
+                      if (!windowMarking.selectedWindowId) return;
+                      windowMarking.deleteWindow(windowMarking.selectedWindowId);
+                    }}
+                  />
                 }
-              }}
-              onSelectType={windowMarking.setWindowType}
-              onDeleteSelectedWindow={() => {
-                if (!windowMarking.selectedWindowId) return;
-                windowMarking.deleteWindow(windowMarking.selectedWindowId);
-              }}
-            />
-          }
-        />
-        <Canvas
-          image={uploadedImage}
-          isCalibrationMode={calibration.isCalibrationMode}
-          measurementPoints={calibration.measurementPoints}
-          scale={calibration.scale}
-          onAddMeasurementPoint={calibration.addMeasurementPoint}
-          isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
-          walls={wallDrawing.walls}
-          polygons={wallDrawing.polygons}
-          selectedWallId={wallDrawing.selectedWallId}
-          currentWall={wallDrawing.currentWall}
-          onBeginWall={wallDrawing.beginWall}
-          onUpdateCurrentWall={wallDrawing.updateCurrentWall}
-          onCompleteCurrentWall={wallDrawing.completeCurrentWall}
-          onSelectWall={wallDrawing.selectWall}
-          onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
-          isWindowMode={windowMarking.isWindowMode}
-          windows={windowMarking.windows}
-          selectedWindowId={windowMarking.selectedWindowId}
-          selectedWindowType={windowMarking.selectedType}
-          onAddWindowByOffsets={windowMarking.addWindowByOffsets}
-          onSelectWindow={windowMarking.selectWindow}
-        />
-      </div>
+              />
+            )}
+
+            {(activeTool === "layers" || activeTool === "settings") && (
+              <section className="panel">
+                <h2 className="text-base font-bold">資料狀態</h2>
+                <p className="calibration-status">{imageInfoText}</p>
+                {!uploadedImage && floorplanData.image && (
+                  <p className="calibration-status">
+                    已恢復資料，但圖片檔案需重新上傳（JSON/LocalStorage 不含圖片內容）。
+                  </p>
+                )}
+                <pre className="json-view">
+                  {JSON.stringify(
+                    {
+                      meta: floorplanData.meta,
+                      image: floorplanData.image ?? null,
+                      scale: floorplanData.scale ?? null,
+                      walls: floorplanData.walls,
+                      polygons: floorplanData.polygons,
+                      windows: floorplanData.windows,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </section>
+            )}
+
+            {storage.status && (
+              <section className={`panel storage-status ${storage.status.type}`}>
+                <p>{storage.status.message}</p>
+                <button type="button" className="btn btn-link" onClick={storage.clearStatus}>
+                  關閉
+                </button>
+              </section>
+            )}
+          </aside>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          <GeometryPreview
+            floorplanData={floorplanData}
+            ceilingHeight={ceilingHeight}
+            wallThickness={wallThickness}
+            cameraHeight={cameraHeight}
+            moveSpeed={moveSpeed}
+            lookSensitivity={lookSensitivity}
+            collisionRadius={collisionRadius}
+            showCollisionDebug={showCollisionDebug}
+            onCeilingHeightChange={setCeilingHeight}
+            onWallThicknessChange={setWallThickness}
+            onCameraHeightChange={setCameraHeight}
+            onMoveSpeedChange={setMoveSpeed}
+            onLookSensitivityChange={setLookSensitivity}
+            onCollisionRadiusChange={setCollisionRadius}
+            onShowCollisionDebugChange={setShowCollisionDebug}
+          />
+        </div>
+      )}
+
       <DistanceInputDialog
         isOpen={isDistanceDialogOpen}
         pixelDistance={measurementDistancePx}
         onConfirm={onConfirmDistance}
         onCancel={onCancelDistance}
       />
-      <section className="panel">
-        <h2>Step2 2.6 Collision & Boundaries</h2>
-        <div className="geometry-settings">
-          <label>
-            天花板高度 (m)
-            <input
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={ceilingHeight}
-              onChange={(event) => setCeilingHeight(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label>
-            牆厚 (m)
-            <input
-              type="number"
-              min={0.01}
-              step={0.01}
-              value={wallThickness}
-              onChange={(event) => setWallThickness(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label>
-            相機高度 (m)
-            <input
-              type="number"
-              min={1}
-              max={2.2}
-              step={0.1}
-              value={cameraHeight}
-              onChange={(event) => setCameraHeight(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label>
-            移動速度 (m/s)
-            <input
-              type="number"
-              min={0.5}
-              max={10}
-              step={0.1}
-              value={moveSpeed}
-              onChange={(event) => setMoveSpeed(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label>
-            滑鼠靈敏度
-            <input
-              type="number"
-              min={0.2}
-              max={3}
-              step={0.1}
-              value={lookSensitivity}
-              onChange={(event) => setLookSensitivity(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label>
-            碰撞半徑 (m)
-            <input
-              type="number"
-              min={0.1}
-              max={1}
-              step={0.01}
-              value={collisionRadius}
-              onChange={(event) => setCollisionRadius(Number(event.target.value) || 0)}
-            />
-          </label>
-          <label className="geometry-checkbox">
-            <input
-              type="checkbox"
-              checked={showCollisionDebug}
-              onChange={(event) => setShowCollisionDebug(event.target.checked)}
-            />
-            顯示碰撞邊界 debug
-          </label>
-        </div>
-        <GeometryPreview
-          floorplanData={floorplanData}
-          ceilingHeight={ceilingHeight}
-          wallThickness={wallThickness}
-          cameraHeight={cameraHeight}
-          moveSpeed={moveSpeed}
-          lookSensitivity={lookSensitivity}
-          collisionRadius={collisionRadius}
-          showCollisionDebug={showCollisionDebug}
-        />
-      </section>
-
-      <section className="panel">
-        <h2>資料狀態</h2>
-        <p>{imageInfoText}</p>
-        {!uploadedImage && floorplanData.image && (
-          <p className="calibration-status">
-            已恢復資料，但圖片檔案需重新上傳（JSON/LocalStorage 不含圖片內容）。
-          </p>
-        )}
-        <pre className="json-view">
-          {JSON.stringify(
-            {
-              meta: floorplanData.meta,
-              image: floorplanData.image ?? null,
-              scale: floorplanData.scale ?? null,
-              walls: floorplanData.walls,
-              polygons: floorplanData.polygons,
-              windows: floorplanData.windows,
-            },
-            null,
-            2,
-          )}
-        </pre>
-      </section>
     </main>
   );
 }

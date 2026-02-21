@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SpatialPlanner - Floorplan Calibration</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#137fec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101922",
+                        "surface-dark": "#182430",
+                        "surface-light": "#ffffff",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        /* Custom scrollbar for dark mode */
+        .dark ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .dark ::-webkit-scrollbar-track {
+            background: #111a22;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #233648;
+            border-radius: 4px;
+        }
+        .dark ::-webkit-scrollbar-thumb:hover {
+            background: #2f455a;
+        }
+        
+        /* Dotted background pattern */
+        .bg-dots {
+            background-image: radial-gradient(#233648 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display antialiased overflow-hidden h-screen flex flex-col">
+<!-- Top Navigation Bar -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-[#233648] px-6 py-3 bg-surface-light dark:bg-[#111a22] z-50">
+<div class="flex items-center gap-4">
+<div class="size-8 flex items-center justify-center bg-primary rounded-lg text-white">
+<span class="material-symbols-outlined">architecture</span>
+</div>
+<div>
+<h2 class="text-base font-bold leading-tight tracking-[-0.015em]">SpatialPlanner</h2>
+<div class="flex items-center gap-2 text-xs text-slate-500 dark:text-[#92adc9]">
+<span>Project: Modern Loft</span>
+<span class="material-symbols-outlined text-[12px]">chevron_right</span>
+<span>Step 1: Calibration</span>
+</div>
+</div>
+</div>
+<div class="flex flex-1 justify-center">
+<div class="hidden md:flex items-center bg-slate-100 dark:bg-[#182430] rounded-lg p-1">
+<button class="px-4 py-1.5 rounded text-xs font-medium bg-white dark:bg-[#233648] shadow-sm text-slate-900 dark:text-white transition-all">Design</button>
+<button class="px-4 py-1.5 rounded text-xs font-medium text-slate-500 dark:text-[#92adc9] hover:text-slate-900 dark:hover:text-white transition-all">3D View</button>
+<button class="px-4 py-1.5 rounded text-xs font-medium text-slate-500 dark:text-[#92adc9] hover:text-slate-900 dark:hover:text-white transition-all">Render</button>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 text-slate-500 dark:text-[#92adc9]">
+<button class="p-2 hover:bg-slate-100 dark:hover:bg-[#233648] rounded-full transition-colors">
+<span class="material-symbols-outlined text-[20px]">undo</span>
+</button>
+<button class="p-2 hover:bg-slate-100 dark:hover:bg-[#233648] rounded-full transition-colors">
+<span class="material-symbols-outlined text-[20px]">redo</span>
+</button>
+</div>
+<div class="h-6 w-px bg-slate-200 dark:bg-[#233648]"></div>
+<button class="flex items-center justify-center rounded-lg h-9 px-4 bg-primary hover:bg-primary/90 text-white text-sm font-bold leading-normal tracking-[0.015em] transition-colors shadow-lg shadow-primary/20">
+<span class="truncate">Next Step</span>
+<span class="material-symbols-outlined ml-2 text-[18px]">arrow_forward</span>
+</button>
+<div class="bg-center bg-no-repeat bg-cover rounded-full size-9 border-2 border-slate-200 dark:border-[#233648]" data-alt="User profile picture" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBPgEsGJ-S8LjEFLhix84OjvCF3e5S8OBYBHK59QFv1tx3DiHT5HOyVMafkaDOsJ9CG98rjUfxWsso4jVewF1rvGd1vMnodky58XcvjaxkPx8YncnSPQ5HfPlMMsRxDV4igog2Bg4ILmWvHehVecADk7ElpV6ZB0lRPrRaFcA7IxYpn24Kr5ewm0ByAOKxqokKhzG5cT2xJX_vsNtMzO-Eo7udo5fXRZYlEPY1X-zdn6ICAdoVOTZorTyvyaPCu_isLLMgHjnqbrK7V");'></div>
+</div>
+</header>
+<!-- Main Workspace -->
+<div class="flex flex-1 overflow-hidden">
+<!-- Left Toolbar -->
+<aside class="w-[72px] flex flex-col items-center py-4 bg-surface-light dark:bg-[#111a22] border-r border-slate-200 dark:border-[#233648] z-40">
+<div class="flex flex-col gap-2">
+<!-- Tool Item -->
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl text-slate-500 dark:text-[#92adc9] hover:bg-slate-100 dark:hover:bg-[#233648] hover:text-primary transition-all">
+<span class="material-symbols-outlined">upload_file</span>
+</button>
+<div class="absolute left-14 px-2 py-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                        Upload Floorplan
+                    </div>
+</div>
+<!-- Active Tool Item -->
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20 shadow-sm">
+<span class="material-symbols-outlined fill-current">straighten</span>
+</button>
+<div class="absolute left-14 px-2 py-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                        Calibrate Scale
+                    </div>
+</div>
+<!-- Tool Item -->
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl text-slate-500 dark:text-[#92adc9] hover:bg-slate-100 dark:hover:bg-[#233648] hover:text-primary transition-all">
+<span class="material-symbols-outlined">edit</span>
+</button>
+<div class="absolute left-14 px-2 py-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                        Draw Walls
+                    </div>
+</div>
+<!-- Tool Item -->
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl text-slate-500 dark:text-[#92adc9] hover:bg-slate-100 dark:hover:bg-[#233648] hover:text-primary transition-all">
+<span class="material-symbols-outlined">open_with</span>
+</button>
+<div class="absolute left-14 px-2 py-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                        Pan / Zoom
+                    </div>
+</div>
+<div class="h-px w-8 bg-slate-200 dark:bg-[#233648] my-2"></div>
+<!-- Tool Item -->
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl text-slate-500 dark:text-[#92adc9] hover:bg-slate-100 dark:hover:bg-[#233648] hover:text-red-500 transition-all">
+<span class="material-symbols-outlined">ink_eraser</span>
+</button>
+<div class="absolute left-14 px-2 py-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                        Eraser
+                    </div>
+</div>
+</div>
+<div class="mt-auto flex flex-col gap-2 mb-2">
+<div class="group relative flex items-center justify-center p-2">
+<button class="flex items-center justify-center size-10 rounded-xl text-slate-500 dark:text-[#92adc9] hover:bg-slate-100 dark:hover:bg-[#233648] transition-all">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+</aside>
+<!-- Main Canvas Area -->
+<main class="relative flex-1 bg-slate-50 dark:bg-[#0d1218] overflow-hidden flex flex-col">
+<!-- Canvas Toolbar/Info -->
+<div class="absolute top-4 left-4 z-10 flex gap-2">
+<div class="bg-surface-light/90 dark:bg-[#182430]/90 backdrop-blur border border-slate-200 dark:border-[#233648] text-slate-700 dark:text-slate-200 text-xs font-medium px-3 py-2 rounded-lg shadow-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">info</span>
+<span>Click two points on a known length (e.g. a doorway) to calibrate.</span>
+</div>
+</div>
+<!-- Canvas Container -->
+<div class="w-full h-full relative bg-dots overflow-hidden cursor-crosshair">
+<!-- Floorplan Image -->
+<div class="absolute inset-0 flex items-center justify-center">
+<div class="relative w-[800px] h-[600px] shadow-2xl rounded-sm overflow-hidden border-4 border-white dark:border-[#233648]">
+<!-- Blue floorplan blueprint -->
+<div class="absolute inset-0 bg-cover bg-center opacity-90 invert dark:invert-0 transition-all" data-alt="Architectural blue print floor plan of a house" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuB-Pcv6-uyAMIOm6Sepvy5mkw58URnWW57xstiG4q6bOuJfhsvRjd_ktQW94CCvJA33Byv1EAe_HQIMElyc-9Kd0D9fQIrdiTpKl2w3bFy199UxhFB6u5iHbdUCckC58-6yoPXdl7sKTts900qtTvzzbbZn4WJka8jtPbfLomoc0Qufjjgy2_gzyAzBVMYh2Gu6GH3EVI71LhNuJhsFLf238_cgtPpud-H5Ai53dtESW6bbKNaAn8ze96DCQ4XxyXxOhM6JJjZ1Mqpq'); filter: grayscale(100%) contrast(120%) brightness(0.8) sepia(1) hue-rotate(180deg) saturate(300%);">
+</div>
+<!-- Calibration Line Overlay -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none z-20">
+<!-- Line -->
+<line stroke="#137fec" stroke-dasharray="4 2" stroke-width="2" x1="320" x2="420" y1="280" y2="280"></line>
+<!-- Endpoints -->
+<circle cx="320" cy="280" fill="#137fec" r="4" stroke="white" stroke-width="2"></circle>
+<circle cx="420" cy="280" fill="#137fec" r="4" stroke="white" stroke-width="2"></circle>
+</svg>
+<!-- Measurement Input Popup -->
+<div class="absolute top-[230px] left-[330px] z-30 transform -translate-x-1/2">
+<div class="bg-surface-light dark:bg-[#182430] rounded-lg shadow-xl border border-slate-200 dark:border-[#233648] p-3 w-[200px] flex flex-col gap-2">
+<div class="flex justify-between items-center">
+<label class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-[#92adc9]">Real Length</label>
+<button class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+<div class="flex gap-2">
+<input class="w-full bg-slate-50 dark:bg-[#111a22] border border-slate-200 dark:border-[#233648] rounded px-2 py-1 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-primary font-mono text-right" type="text" value="0.9"/>
+<select class="bg-slate-50 dark:bg-[#111a22] border border-slate-200 dark:border-[#233648] rounded px-1 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-primary">
+<option>m</option>
+<option>ft</option>
+<option>cm</option>
+</select>
+</div>
+<button class="w-full bg-primary hover:bg-primary/90 text-white text-xs font-bold py-1.5 rounded transition-colors">
+                                    Set Scale
+                                </button>
+</div>
+<!-- Triangle pointer -->
+<div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white dark:border-t-[#233648] mx-auto mt-[-1px]"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Status Bar -->
+<div class="h-8 bg-surface-light dark:bg-[#111a22] border-t border-slate-200 dark:border-[#233648] flex items-center justify-between px-4 text-xs text-slate-500 dark:text-[#92adc9]">
+<div class="flex gap-4">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">my_location</span> X: 320 Y: 280</span>
+<span class="hidden sm:inline">Unit: Metric</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="hover:text-primary"><span class="material-symbols-outlined text-[16px]">remove</span></button>
+<span class="font-mono">85%</span>
+<button class="hover:text-primary"><span class="material-symbols-outlined text-[16px]">add</span></button>
+<div class="h-4 w-px bg-slate-300 dark:bg-[#233648] mx-1"></div>
+<button class="hover:text-primary"><span class="material-symbols-outlined text-[16px]">fit_screen</span></button>
+</div>
+</div>
+</main>
+<!-- Right Sidebar -->
+<aside class="w-80 bg-surface-light dark:bg-[#111a22] border-l border-slate-200 dark:border-[#233648] flex flex-col overflow-y-auto">
+<!-- Project Details -->
+<div class="p-5 border-b border-slate-200 dark:border-[#233648]">
+<h3 class="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">description</span>
+                    Project Details
+                </h3>
+<div class="grid grid-cols-2 gap-3 mb-2">
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-500 dark:text-[#92adc9] font-medium tracking-wide">Name</span>
+<span class="text-sm text-slate-800 dark:text-slate-200 font-medium">Modern Loft</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-500 dark:text-[#92adc9] font-medium tracking-wide">Date</span>
+<span class="text-sm text-slate-800 dark:text-slate-200 font-medium">Oct 24, 2023</span>
+</div>
+<div class="flex flex-col gap-1 col-span-2">
+<span class="text-[10px] uppercase text-slate-500 dark:text-[#92adc9] font-medium tracking-wide">Image Size</span>
+<span class="text-sm text-slate-800 dark:text-slate-200 font-medium">2400 x 1800 px</span>
+</div>
+</div>
+</div>
+<!-- Calibration Status -->
+<div class="p-5 border-b border-slate-200 dark:border-[#233648]">
+<div class="flex items-center justify-between mb-3">
+<h3 class="text-sm font-bold text-slate-900 dark:text-white">Calibration</h3>
+<span class="px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-[10px] font-bold border border-yellow-500/20">PENDING</span>
+</div>
+<div class="bg-slate-100 dark:bg-[#182430] rounded-lg p-3 border border-slate-200 dark:border-[#233648] mb-3">
+<div class="flex items-center justify-between mb-1">
+<span class="text-xs text-slate-500 dark:text-[#92adc9]">Current Scale Ratio</span>
+<span class="material-symbols-outlined text-[14px] text-slate-400">help</span>
+</div>
+<div class="text-lg font-mono font-bold text-slate-800 dark:text-white">
+                        1px = <span class="text-primary">--</span> m
+                    </div>
+</div>
+<p class="text-xs text-slate-500 dark:text-[#92adc9] leading-relaxed">
+                    Accurate calibration is essential for 3D modeling. Measure the widest known distance for best results.
+                </p>
+</div>
+<!-- Layers Panel -->
+<div class="flex-1 p-5">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-sm font-bold text-slate-900 dark:text-white">Layers</h3>
+<button class="text-primary text-xs font-medium hover:underline">Reset All</button>
+</div>
+<div class="flex flex-col gap-2">
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-[#182430] border border-transparent hover:border-slate-300 dark:hover:border-[#2f455a] group cursor-pointer transition-all">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">image</span>
+<span class="text-sm text-slate-700 dark:text-slate-200 font-medium">Floorplan Image</span>
+</div>
+<button class="text-slate-400 hover:text-primary dark:hover:text-white opacity-60 group-hover:opacity-100">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-[#182430] border border-transparent hover:border-slate-300 dark:hover:border-[#2f455a] group cursor-pointer transition-all">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">grid_4x4</span>
+<span class="text-sm text-slate-700 dark:text-slate-200 font-medium">Grid Overlay</span>
+</div>
+<button class="text-slate-400 hover:text-primary dark:hover:text-white opacity-60 group-hover:opacity-100">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+<!-- Layer Item (Active) -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-primary/10 border border-primary/20 group cursor-pointer transition-all">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[18px]">linear_scale</span>
+<span class="text-sm text-slate-900 dark:text-white font-medium">Calibration Lines</span>
+</div>
+<button class="text-primary hover:text-primary/80">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+<!-- Layer Item -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-slate-100 dark:bg-[#182430] border border-transparent hover:border-slate-300 dark:hover:border-[#2f455a] group cursor-pointer transition-all opacity-50">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">foundation</span>
+<span class="text-sm text-slate-700 dark:text-slate-200 font-medium">Detected Walls</span>
+</div>
+<button class="text-slate-400 hover:text-primary dark:hover:text-white opacity-60 group-hover:opacity-100">
+<span class="material-symbols-outlined text-[18px]">visibility_off</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Pro Tip or Ad area -->
+<div class="p-5 mt-auto">
+<div class="bg-gradient-to-br from-slate-800 to-slate-900 dark:from-[#182430] dark:to-[#111a22] rounded-xl p-4 border border-slate-700 dark:border-[#233648] relative overflow-hidden group">
+<div class="relative z-10">
+<div class="flex items-center gap-2 mb-2 text-yellow-400">
+<span class="material-symbols-outlined text-[18px]">lightbulb</span>
+<span class="text-xs font-bold uppercase tracking-wide">Pro Tip</span>
+</div>
+<p class="text-xs text-slate-300 mb-3">
+                            Use the longest wall available for calibration to reduce the margin of error in your 3D model.
+                        </p>
+<a class="text-xs text-white underline decoration-primary decoration-2 underline-offset-2 hover:text-primary transition-colors" href="#">Learn more</a>
+</div>
+<!-- Decorative circle -->
+<div class="absolute -right-4 -bottom-4 w-20 h-20 bg-primary/20 rounded-full blur-xl group-hover:bg-primary/30 transition-all"></div>
+</div>
+</div>
+</aside>
+</div>
+</body></html>

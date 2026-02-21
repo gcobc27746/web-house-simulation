@@ -35,6 +35,11 @@ interface CanvasProps {
   selectedWindowType: WindowType;
   onAddWindowByOffsets: (wallId: string, startOffset: number, endOffset: number) => void;
   onSelectWindow: (id: string | null) => void;
+  className?: string;
+  onCanvasStatusChange?: (status: {
+    cursor: Point2D | null;
+    zoomPercent: number;
+  }) => void;
 }
 
 interface TransformState {
@@ -73,8 +78,11 @@ export function Canvas({
   selectedWindowType,
   onAddWindowByOffsets,
   onSelectWindow,
+  className,
+  onCanvasStatusChange,
 }: CanvasProps) {
   const panelRef = useRef<HTMLElement | null>(null);
+  const stageWrapRef = useRef<HTMLDivElement | null>(null);
   const [transform, setTransform] = useState<TransformState>({
     x: 0,
     y: 0,
@@ -119,14 +127,12 @@ export function Canvas({
   }, [isDrawingMode]);
 
   useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
+    const stageWrap = stageWrapRef.current;
+    if (!stageWrap) return;
 
     const updateViewport = () => {
-      const panelWidth = panel.clientWidth;
-      const availableWidth = Math.max(420, panelWidth - 32);
-      const width = Math.min(BASE_VIEWPORT.width, availableWidth);
-      const height = Math.round((BASE_VIEWPORT.height / BASE_VIEWPORT.width) * width);
+      const width = Math.max(320, stageWrap.clientWidth);
+      const height = Math.max(320, stageWrap.clientHeight);
       setViewport((previous) =>
         previous.width === width && previous.height === height
           ? previous
@@ -136,7 +142,7 @@ export function Canvas({
 
     updateViewport();
     const observer = new ResizeObserver(updateViewport);
-    observer.observe(panel);
+    observer.observe(stageWrap);
     return () => observer.disconnect();
   }, []);
 
@@ -173,6 +179,14 @@ export function Canvas({
     if (!scale || measurementDistancePx === null) return null;
     return measurementDistancePx * scale.pixelsPerMeter;
   }, [measurementDistancePx, scale]);
+
+  useEffect(() => {
+    if (!onCanvasStatusChange) return;
+    onCanvasStatusChange({
+      cursor: null,
+      zoomPercent: Math.round(transform.scale * 100),
+    });
+  }, [onCanvasStatusChange, transform.scale]);
   const invariantStrokeWidth = 3 / transform.scale;
   const invariantSelectedStrokeWidth = 4 / transform.scale;
   const invariantEndpointRadius = 5 / transform.scale;
@@ -466,6 +480,10 @@ export function Canvas({
     if (!pointer) return;
 
     const imagePoint = stageToImagePoint(pointer);
+    onCanvasStatusChange?.({
+      cursor: isInsideImage(imagePoint) ? imagePoint : null,
+      zoomPercent: Math.round(transform.scale * 100),
+    });
     if (isWindowMode && windowSelection) {
       setWindowSelection((previous) =>
         previous ? { ...previous, end: clampToImageBounds(imagePoint) } : previous,
@@ -532,207 +550,208 @@ export function Canvas({
   }, [measurementPoints]);
 
   return (
-    <section className="panel canvas-panel" ref={panelRef}>
+    <section className={`panel canvas-panel ${className ?? ""}`.trim()} ref={panelRef}>
       <h2>2D 畫布</h2>
       <p>{imageSizeText}</p>
-      <Stage
-        width={viewport.width}
-        height={viewport.height}
-        className="stage"
-        onWheel={onWheel}
-        onMouseDown={onStageMouseDown}
-        onMouseMove={onStageMouseMove}
-        onMouseUp={onStageMouseUp}
-      >
-        <Layer>
-          {image && (
-            <Group
-              x={transform.x}
-              y={transform.y}
-              scaleX={transform.scale}
-              scaleY={transform.scale}
-              draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
-              onDragEnd={(evt) => {
-                setTransform((previous) => ({
-                  ...previous,
-                  x: evt.target.x(),
-                  y: evt.target.y(),
-                }));
-              }}
-            >
-              <KonvaImage image={image} />
-              {pixelPolygons.map((polygon) => (
-                <Line
-                  key={polygon.id}
-                  points={polygon.vertices.flatMap((vertex) => [vertex.x, vertex.y])}
-                  closed
-                  fill="rgba(51, 113, 255, 0.12)"
-                  stroke="#4b8bff"
-                  strokeWidth={1}
-                  listening={false}
-                />
-              ))}
-              {pixelWalls.map((wall) => {
-                const isSelected = selectedWallId === wall.id;
-                return (
-                  <Group key={wall.id}>
-                    <Line
-                      name="wall-line"
-                      points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                      stroke={isSelected ? "#ff8a00" : "#3273dc"}
-                      strokeWidth={isSelected ? invariantSelectedStrokeWidth : invariantStrokeWidth}
-                      strokeScaleEnabled={false}
-                      hitStrokeWidth={14 / transform.scale}
-                      onMouseDown={(event) => {
-                        event.cancelBubble = true;
-                        onSelectWall(wall.id);
-                        onSelectWindow(null);
-                      }}
-                      onClick={(event) => {
-                        event.cancelBubble = true;
-                        onSelectWall(wall.id);
-                        onSelectWindow(null);
-                      }}
-                    />
-                    <Circle
-                      name="wall-endpoint"
-                      x={wall.start.x}
-                      y={wall.start.y}
-                      radius={invariantEndpointRadius}
-                      fill={isSelected ? "#ff8a00" : "#3273dc"}
-                      draggable={isDrawingMode && !isWindowMode}
-                      onDragStart={(event) => {
-                        event.cancelBubble = true;
-                        onSelectWall(wall.id);
-                      }}
-                      onDragEnd={(event) => {
-                        if (!scale) return;
-                        const position = clampToImageBounds({
-                          x: event.target.x(),
-                          y: event.target.y(),
-                        });
-                        onMoveWallEndpoint(
-                          wall.id,
-                          "start",
-                          pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
-                        );
-                      }}
-                    />
-                    <Circle
-                      name="wall-endpoint"
-                      x={wall.end.x}
-                      y={wall.end.y}
-                      radius={invariantEndpointRadius}
-                      fill={isSelected ? "#ff8a00" : "#3273dc"}
-                      draggable={isDrawingMode && !isWindowMode}
-                      onDragStart={(event) => {
-                        event.cancelBubble = true;
-                        onSelectWall(wall.id);
-                      }}
-                      onDragEnd={(event) => {
-                        if (!scale) return;
-                        const position = clampToImageBounds({
-                          x: event.target.x(),
-                          y: event.target.y(),
-                        });
-                        onMoveWallEndpoint(
-                          wall.id,
-                          "end",
-                          pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
-                        );
-                      }}
-                    />
-                  </Group>
-                );
-              })}
-              {windowSegments.map((segment) => (
-                <Line
-                  key={segment.id}
-                  name="window-line"
-                  points={[segment.start.x, segment.start.y, segment.end.x, segment.end.y]}
-                  stroke={segment.selected ? "#ff9f1a" : getWindowColor(segment.type)}
-                  strokeWidth={(segment.selected ? 7 : 5) / transform.scale}
-                  strokeScaleEnabled={false}
-                  lineCap="round"
-                  onMouseDown={(event) => {
-                    event.cancelBubble = true;
-                    onSelectWindow(segment.id);
-                  }}
-                  onClick={(event) => {
-                    event.cancelBubble = true;
-                    onSelectWindow(segment.id);
-                  }}
-                />
-              ))}
-              {selectionRect && (
-                <Rect
-                  x={selectionRect.x}
-                  y={selectionRect.y}
-                  width={selectionRect.width}
-                  height={selectionRect.height}
-                  stroke={getWindowColor(selectedWindowType)}
-                  strokeWidth={1.5 / transform.scale}
-                  fill="rgba(79, 127, 216, 0.12)"
-                  listening={false}
-                />
-              )}
-              {previewWallPixels && (
-                <Line
-                  points={[
-                    previewWallPixels.start.x,
-                    previewWallPixels.start.y,
-                    previewWallPixels.end.x,
-                    previewWallPixels.end.y,
-                  ]}
-                  stroke="#22aa66"
-                  strokeWidth={2 / transform.scale}
-                  strokeScaleEnabled={false}
-                  dash={[8, 6]}
-                  listening={false}
-                />
-              )}
-              {measurementPoints.length >= 1 && (
-                <Circle
-                  x={measurementPoints[0].x}
-                  y={measurementPoints[0].y}
-                  radius={5}
-                  fill="#ff3b30"
-                />
-              )}
-              {measurementPoints.length >= 2 && (
-                <>
+      <div ref={stageWrapRef} className="mt-3 h-[640px] w-full rounded-xl border border-border-dark bg-[#0d1218]">
+        <Stage
+          width={viewport.width}
+          height={viewport.height}
+          onWheel={onWheel}
+          onMouseDown={onStageMouseDown}
+          onMouseMove={onStageMouseMove}
+          onMouseUp={onStageMouseUp}
+        >
+          <Layer>
+            {image && (
+              <Group
+                x={transform.x}
+                y={transform.y}
+                scaleX={transform.scale}
+                scaleY={transform.scale}
+                draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
+                onDragEnd={(evt) => {
+                  setTransform((previous) => ({
+                    ...previous,
+                    x: evt.target.x(),
+                    y: evt.target.y(),
+                  }));
+                }}
+              >
+                <KonvaImage image={image} />
+                {pixelPolygons.map((polygon) => (
+                  <Line
+                    key={polygon.id}
+                    points={polygon.vertices.flatMap((vertex) => [vertex.x, vertex.y])}
+                    closed
+                    fill="rgba(51, 113, 255, 0.12)"
+                    stroke="#4b8bff"
+                    strokeWidth={1}
+                    listening={false}
+                  />
+                ))}
+                {pixelWalls.map((wall) => {
+                  const isSelected = selectedWallId === wall.id;
+                  return (
+                    <Group key={wall.id}>
+                      <Line
+                        name="wall-line"
+                        points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
+                        stroke={isSelected ? "#ff8a00" : "#3273dc"}
+                        strokeWidth={isSelected ? invariantSelectedStrokeWidth : invariantStrokeWidth}
+                        strokeScaleEnabled={false}
+                        hitStrokeWidth={14 / transform.scale}
+                        onMouseDown={(event) => {
+                          event.cancelBubble = true;
+                          onSelectWall(wall.id);
+                          onSelectWindow(null);
+                        }}
+                        onClick={(event) => {
+                          event.cancelBubble = true;
+                          onSelectWall(wall.id);
+                          onSelectWindow(null);
+                        }}
+                      />
+                      <Circle
+                        name="wall-endpoint"
+                        x={wall.start.x}
+                        y={wall.start.y}
+                        radius={invariantEndpointRadius}
+                        fill={isSelected ? "#ff8a00" : "#3273dc"}
+                        draggable={isDrawingMode && !isWindowMode}
+                        onDragStart={(event) => {
+                          event.cancelBubble = true;
+                          onSelectWall(wall.id);
+                        }}
+                        onDragEnd={(event) => {
+                          if (!scale) return;
+                          const position = clampToImageBounds({
+                            x: event.target.x(),
+                            y: event.target.y(),
+                          });
+                          onMoveWallEndpoint(
+                            wall.id,
+                            "start",
+                            pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
+                          );
+                        }}
+                      />
+                      <Circle
+                        name="wall-endpoint"
+                        x={wall.end.x}
+                        y={wall.end.y}
+                        radius={invariantEndpointRadius}
+                        fill={isSelected ? "#ff8a00" : "#3273dc"}
+                        draggable={isDrawingMode && !isWindowMode}
+                        onDragStart={(event) => {
+                          event.cancelBubble = true;
+                          onSelectWall(wall.id);
+                        }}
+                        onDragEnd={(event) => {
+                          if (!scale) return;
+                          const position = clampToImageBounds({
+                            x: event.target.x(),
+                            y: event.target.y(),
+                          });
+                          onMoveWallEndpoint(
+                            wall.id,
+                            "end",
+                            pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
+                          );
+                        }}
+                      />
+                    </Group>
+                  );
+                })}
+                {windowSegments.map((segment) => (
+                  <Line
+                    key={segment.id}
+                    name="window-line"
+                    points={[segment.start.x, segment.start.y, segment.end.x, segment.end.y]}
+                    stroke={segment.selected ? "#ff9f1a" : getWindowColor(segment.type)}
+                    strokeWidth={(segment.selected ? 7 : 5) / transform.scale}
+                    strokeScaleEnabled={false}
+                    lineCap="round"
+                    onMouseDown={(event) => {
+                      event.cancelBubble = true;
+                      onSelectWindow(segment.id);
+                    }}
+                    onClick={(event) => {
+                      event.cancelBubble = true;
+                      onSelectWindow(segment.id);
+                    }}
+                  />
+                ))}
+                {selectionRect && (
+                  <Rect
+                    x={selectionRect.x}
+                    y={selectionRect.y}
+                    width={selectionRect.width}
+                    height={selectionRect.height}
+                    stroke={getWindowColor(selectedWindowType)}
+                    strokeWidth={1.5 / transform.scale}
+                    fill="rgba(79, 127, 216, 0.12)"
+                    listening={false}
+                  />
+                )}
+                {previewWallPixels && (
                   <Line
                     points={[
-                      measurementPoints[0].x,
-                      measurementPoints[0].y,
-                      measurementPoints[1].x,
-                      measurementPoints[1].y,
+                      previewWallPixels.start.x,
+                      previewWallPixels.start.y,
+                      previewWallPixels.end.x,
+                      previewWallPixels.end.y,
                     ]}
-                    stroke="#ff3b30"
-                    strokeWidth={2}
+                    stroke="#22aa66"
+                    strokeWidth={2 / transform.scale}
+                    strokeScaleEnabled={false}
+                    dash={[8, 6]}
+                    listening={false}
                   />
+                )}
+                {measurementPoints.length >= 1 && (
                   <Circle
-                    x={measurementPoints[1].x}
-                    y={measurementPoints[1].y}
+                    x={measurementPoints[0].x}
+                    y={measurementPoints[0].y}
                     radius={5}
                     fill="#ff3b30"
                   />
-                </>
-              )}
-              {labelPosition && measurementLabel && (
-                <Text
-                  x={labelPosition.x}
-                  y={labelPosition.y}
-                  text={measurementLabel}
-                  fill="#ff3b30"
-                  fontSize={16}
-                  fontStyle="bold"
-                />
-              )}
-            </Group>
-          )}
-        </Layer>
-      </Stage>
+                )}
+                {measurementPoints.length >= 2 && (
+                  <>
+                    <Line
+                      points={[
+                        measurementPoints[0].x,
+                        measurementPoints[0].y,
+                        measurementPoints[1].x,
+                        measurementPoints[1].y,
+                      ]}
+                      stroke="#ff3b30"
+                      strokeWidth={2}
+                    />
+                    <Circle
+                      x={measurementPoints[1].x}
+                      y={measurementPoints[1].y}
+                      radius={5}
+                      fill="#ff3b30"
+                    />
+                  </>
+                )}
+                {labelPosition && measurementLabel && (
+                  <Text
+                    x={labelPosition.x}
+                    y={labelPosition.y}
+                    text={measurementLabel}
+                    fill="#ff3b30"
+                    fontSize={16}
+                    fontStyle="bold"
+                  />
+                )}
+              </Group>
+            )}
+          </Layer>
+        </Stage>
+      </div>
       <div className="canvas-hint">
         {hasImage
           ? isCalibrationMode
