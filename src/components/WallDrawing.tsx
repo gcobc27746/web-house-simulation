@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface WallDrawingProps {
   canDraw: boolean;
   isDrawingMode: boolean;
@@ -12,6 +14,7 @@ interface WallDrawingProps {
   onUndo: () => void;
   onRedo: () => void;
   onDeleteSelected: () => void;
+  windowControls?: ReactNode;
 }
 
 export function WallDrawing({
@@ -28,6 +31,7 @@ export function WallDrawing({
   onUndo,
   onRedo,
   onDeleteSelected,
+  windowControls,
 }: WallDrawingProps) {
   return (
     <section className="panel">
@@ -79,6 +83,8 @@ export function WallDrawing({
       <p className="calibration-status">
         {selectedWallId ? `已選取：${selectedWallId}` : "尚未選取牆段"}
       </p>
+
+      {windowControls}
     </section>
   );
 }

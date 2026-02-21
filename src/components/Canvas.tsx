@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Layer, Line, Stage, Text } from "react-konva";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { CurrentWallPreview, WallEndpoint } from "../hooks/useWallDrawing";
-import type { FloorplanPolygon, FloorplanScale, Point2D, WallSegment } from "../types/floorplan";
+import type {
+  FloorplanPolygon,
+  FloorplanScale,
+  Point2D,
+  WallSegment,
+  WindowOpening,
+  WindowType,
+} from "../types/floorplan";
 import { meterToPixel, pixelToMeter } from "../utils/coordinateConverter";
 import { alignWithShift, findSnapPoint } from "../utils/snapHelper";
 
@@ -22,6 +29,12 @@ interface CanvasProps {
   onCompleteCurrentWall: (end: Point2D) => void;
   onSelectWall: (id: string | null) => void;
   onMoveWallEndpoint: (wallId: string, endpoint: WallEndpoint, point: Point2D) => void;
+  isWindowMode: boolean;
+  windows: WindowOpening[];
+  selectedWindowId: string | null;
+  selectedWindowType: WindowType;
+  onAddWindowByOffsets: (wallId: string, startOffset: number, endOffset: number) => void;
+  onSelectWindow: (id: string | null) => void;
 }
 
 interface TransformState {
@@ -30,7 +43,7 @@ interface TransformState {
   scale: number;
 }
 
-const VIEWPORT = {
+const BASE_VIEWPORT = {
   width: 1000,
   height: 640,
 };
@@ -54,13 +67,28 @@ export function Canvas({
   onCompleteCurrentWall,
   onSelectWall,
   onMoveWallEndpoint,
+  isWindowMode,
+  windows,
+  selectedWindowId,
+  selectedWindowType,
+  onAddWindowByOffsets,
+  onSelectWindow,
 }: CanvasProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
   const [transform, setTransform] = useState<TransformState>({
     x: 0,
     y: 0,
     scale: 1,
   });
+  const [viewport, setViewport] = useState({
+    width: BASE_VIEWPORT.width,
+    height: BASE_VIEWPORT.height,
+  });
   const [isTabPanning, setIsTabPanning] = useState(false);
+  const [windowSelection, setWindowSelection] = useState<{
+    start: Point2D;
+    end: Point2D;
+  } | null>(null);
 
   const hasImage = Boolean(image);
 
@@ -91,20 +119,42 @@ export function Canvas({
   }, [isDrawingMode]);
 
   useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const updateViewport = () => {
+      const panelWidth = panel.clientWidth;
+      const availableWidth = Math.max(420, panelWidth - 32);
+      const width = Math.min(BASE_VIEWPORT.width, availableWidth);
+      const height = Math.round((BASE_VIEWPORT.height / BASE_VIEWPORT.width) * width);
+      setViewport((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    };
+
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!image) return;
 
     const fitScale = Math.min(
-      (VIEWPORT.width - 40) / image.width,
-      (VIEWPORT.height - 40) / image.height,
+      (viewport.width - 40) / image.width,
+      (viewport.height - 40) / image.height,
       1,
     );
 
     setTransform({
       scale: fitScale,
-      x: (VIEWPORT.width - image.width * fitScale) / 2,
-      y: (VIEWPORT.height - image.height * fitScale) / 2,
+      x: (viewport.width - image.width * fitScale) / 2,
+      y: (viewport.height - image.height * fitScale) / 2,
     });
-  }, [image]);
+  }, [image, viewport.height, viewport.width]);
 
   const imageSizeText = useMemo(() => {
     if (!image) return "尚未載入圖片";
@@ -153,6 +203,111 @@ export function Canvas({
       end: meterToPixel(currentWall.end.x, currentWall.end.y, scale.pixelsPerMeter),
     };
   }, [currentWall, scale]);
+
+  const wallById = useMemo(() => {
+    const map = new Map<string, WallSegment>();
+    for (const wall of walls) map.set(wall.id, wall);
+    return map;
+  }, [walls]);
+
+  const pixelWallById = useMemo(() => {
+    const map = new Map<string, (typeof pixelWalls)[number]>();
+    for (const wall of pixelWalls) map.set(wall.id, wall);
+    return map;
+  }, [pixelWalls]);
+
+  const getWindowColor = (type: WindowType) => {
+    if (type === "floor") return "#8e44ff";
+    if (type === "high") return "#ff5f5f";
+    return "#00a36c";
+  };
+
+  const getPointOnWallByOffset = (
+    wall: WallSegment,
+    wallPixel: { start: Point2D; end: Point2D },
+    offset: number,
+  ): Point2D | null => {
+    const wallLength = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+    if (wallLength <= 0) return null;
+    const ratio = clamp(offset / wallLength, 0, 1);
+    return {
+      x: wallPixel.start.x + (wallPixel.end.x - wallPixel.start.x) * ratio,
+      y: wallPixel.start.y + (wallPixel.end.y - wallPixel.start.y) * ratio,
+    };
+  };
+
+  const windowSegments = useMemo(() => {
+    const segments: Array<{
+      id: string;
+      type: WindowType;
+      start: Point2D;
+      end: Point2D;
+      selected: boolean;
+    }> = [];
+
+    for (const windowOpening of windows) {
+      const wall = wallById.get(windowOpening.wallId);
+      const wallPixel = pixelWallById.get(windowOpening.wallId);
+      if (!wall || !wallPixel) continue;
+      const start = getPointOnWallByOffset(wall, wallPixel, windowOpening.startOffset);
+      const end = getPointOnWallByOffset(wall, wallPixel, windowOpening.endOffset);
+      if (!start || !end) continue;
+      segments.push({
+        id: windowOpening.id,
+        type: windowOpening.type,
+        start,
+        end,
+        selected: selectedWindowId === windowOpening.id,
+      });
+    }
+
+    return segments;
+  }, [pixelWallById, selectedWindowId, wallById, windows]);
+
+  const selectionRect = useMemo(() => {
+    if (!windowSelection) return null;
+    const x = Math.min(windowSelection.start.x, windowSelection.end.x);
+    const y = Math.min(windowSelection.start.y, windowSelection.end.y);
+    const width = Math.abs(windowSelection.end.x - windowSelection.start.x);
+    const height = Math.abs(windowSelection.end.y - windowSelection.start.y);
+    return { x, y, width, height };
+  }, [windowSelection]);
+
+  const clipSegmentWithRect = (
+    start: Point2D,
+    end: Point2D,
+    rect: { x: number; y: number; width: number; height: number },
+  ): { t0: number; t1: number } | null => {
+    const xMin = rect.x;
+    const xMax = rect.x + rect.width;
+    const yMin = rect.y;
+    const yMax = rect.y + rect.height;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    let t0 = 0;
+    let t1 = 1;
+
+    const clip = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return false;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return false;
+        if (r < t1) t1 = r;
+      }
+      return true;
+    };
+
+    if (!clip(-dx, start.x - xMin)) return null;
+    if (!clip(dx, xMax - start.x)) return null;
+    if (!clip(-dy, start.y - yMin)) return null;
+    if (!clip(dy, yMax - start.y)) return null;
+
+    if (t1 <= t0) return null;
+    return { t0, t1 };
+  };
 
   const onWheel = (event: KonvaEventObject<WheelEvent>) => {
     if (!image) return;
@@ -253,10 +408,7 @@ export function Canvas({
     if (isDrawingMode && isTabPanning) return;
 
     if (event.evt.button !== 0) return;
-    if (
-      event.target.hasName("wall-line") ||
-      event.target.hasName("wall-endpoint")
-    ) {
+    if (event.target.hasName("window-line")) {
       return;
     }
 
@@ -271,6 +423,12 @@ export function Canvas({
 
     if (isCalibrationMode) {
       onAddMeasurementPoint(imagePoint);
+      return;
+    }
+
+    if (isWindowMode) {
+      onSelectWall(null);
+      setWindowSelection({ start: imagePoint, end: imagePoint });
       return;
     }
 
@@ -299,7 +457,7 @@ export function Canvas({
   };
 
   const onStageMouseMove = (event: KonvaEventObject<MouseEvent>) => {
-    if (!image || !isDrawingMode || !scale || !currentWall) return;
+    if (!image) return;
 
     const stage = event.target.getStage();
     if (!stage) return;
@@ -307,6 +465,15 @@ export function Canvas({
     if (!pointer) return;
 
     const imagePoint = stageToImagePoint(pointer);
+    if (isWindowMode && windowSelection) {
+      setWindowSelection((previous) =>
+        previous ? { ...previous, end: clampToImageBounds(imagePoint) } : previous,
+      );
+      return;
+    }
+
+    if (!isDrawingMode || !scale || !currentWall) return;
+
     const constrainedPoint = applyDrawingConstraint(
       imagePoint,
       event.evt.shiftKey,
@@ -317,6 +484,34 @@ export function Canvas({
     onUpdateCurrentWall(
       pixelToMeter(constrainedPoint.x, constrainedPoint.y, scale.pixelsPerMeter),
     );
+  };
+
+  const onStageMouseUp = () => {
+    if (!isWindowMode || !windowSelection || !selectionRect) return;
+    if (selectionRect.width < 2 || selectionRect.height < 2) {
+      setWindowSelection(null);
+      return;
+    }
+
+    for (const wall of pixelWalls) {
+      const clipped = clipSegmentWithRect(wall.start, wall.end, selectionRect);
+      if (!clipped) continue;
+
+      const sourceWall = wallById.get(wall.id);
+      if (!sourceWall) continue;
+      const wallLength = Math.hypot(
+        sourceWall.end.x - sourceWall.start.x,
+        sourceWall.end.y - sourceWall.start.y,
+      );
+      if (wallLength <= 0) continue;
+
+      const startOffset = wallLength * clipped.t0;
+      const endOffset = wallLength * clipped.t1;
+      if (endOffset - startOffset < 0.02) continue;
+      onAddWindowByOffsets(wall.id, startOffset, endOffset);
+    }
+
+    setWindowSelection(null);
   };
 
   const measurementLabel = useMemo(() => {
@@ -336,16 +531,17 @@ export function Canvas({
   }, [measurementPoints]);
 
   return (
-    <section className="panel canvas-panel">
+    <section className="panel canvas-panel" ref={panelRef}>
       <h2>2D 畫布</h2>
       <p>{imageSizeText}</p>
       <Stage
-        width={VIEWPORT.width}
-        height={VIEWPORT.height}
+        width={viewport.width}
+        height={viewport.height}
         className="stage"
         onWheel={onWheel}
         onMouseDown={onStageMouseDown}
         onMouseMove={onStageMouseMove}
+        onMouseUp={onStageMouseUp}
       >
         <Layer>
           {image && (
@@ -354,7 +550,7 @@ export function Canvas({
               y={transform.y}
               scaleX={transform.scale}
               scaleY={transform.scale}
-              draggable={!isCalibrationMode && (!isDrawingMode || isTabPanning)}
+              draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
               onDragEnd={(evt) => {
                 setTransform((previous) => ({
                   ...previous,
@@ -389,10 +585,12 @@ export function Canvas({
                       onMouseDown={(event) => {
                         event.cancelBubble = true;
                         onSelectWall(wall.id);
+                        onSelectWindow(null);
                       }}
                       onClick={(event) => {
                         event.cancelBubble = true;
                         onSelectWall(wall.id);
+                        onSelectWindow(null);
                       }}
                     />
                     <Circle
@@ -401,7 +599,7 @@ export function Canvas({
                       y={wall.start.y}
                       radius={invariantEndpointRadius}
                       fill={isSelected ? "#ff8a00" : "#3273dc"}
-                      draggable={isDrawingMode}
+                      draggable={isDrawingMode && !isWindowMode}
                       onDragStart={(event) => {
                         event.cancelBubble = true;
                         onSelectWall(wall.id);
@@ -425,7 +623,7 @@ export function Canvas({
                       y={wall.end.y}
                       radius={invariantEndpointRadius}
                       fill={isSelected ? "#ff8a00" : "#3273dc"}
-                      draggable={isDrawingMode}
+                      draggable={isDrawingMode && !isWindowMode}
                       onDragStart={(event) => {
                         event.cancelBubble = true;
                         onSelectWall(wall.id);
@@ -446,6 +644,37 @@ export function Canvas({
                   </Group>
                 );
               })}
+              {windowSegments.map((segment) => (
+                <Line
+                  key={segment.id}
+                  name="window-line"
+                  points={[segment.start.x, segment.start.y, segment.end.x, segment.end.y]}
+                  stroke={segment.selected ? "#ff9f1a" : getWindowColor(segment.type)}
+                  strokeWidth={(segment.selected ? 7 : 5) / transform.scale}
+                  strokeScaleEnabled={false}
+                  lineCap="round"
+                  onMouseDown={(event) => {
+                    event.cancelBubble = true;
+                    onSelectWindow(segment.id);
+                  }}
+                  onClick={(event) => {
+                    event.cancelBubble = true;
+                    onSelectWindow(segment.id);
+                  }}
+                />
+              ))}
+              {selectionRect && (
+                <Rect
+                  x={selectionRect.x}
+                  y={selectionRect.y}
+                  width={selectionRect.width}
+                  height={selectionRect.height}
+                  stroke={getWindowColor(selectedWindowType)}
+                  strokeWidth={1.5 / transform.scale}
+                  fill="rgba(79, 127, 216, 0.12)"
+                  listening={false}
+                />
+              )}
               {previewWallPixels && (
                 <Line
                   points={[
@@ -507,6 +736,8 @@ export function Canvas({
         {hasImage
           ? isCalibrationMode
             ? "校正模式中：請在圖片內點擊兩個量測點。"
+            : isWindowMode
+              ? "窗戶模式中：拖曳框選範圍，若框到牆段會自動截取成窗戶。"
             : isDrawingMode
               ? isTabPanning
                 ? "Tab 暫時拖曳模式：可拖曳底圖，放開 Tab 回到繪製。"

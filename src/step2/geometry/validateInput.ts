@@ -75,6 +75,64 @@ export function validateGeometryInput(
     }
   }
 
+  const wallLengthById = new Map<string, number>();
+  for (const wall of floorplanData.walls) {
+    wallLengthById.set(
+      wall.id,
+      Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y),
+    );
+  }
+
+  for (const windowOpening of floorplanData.windows ?? []) {
+    const wallLength = wallLengthById.get(windowOpening.wallId);
+    if (wallLength === undefined) {
+      errors.push({
+        code: "WINDOW_WALL_NOT_FOUND",
+        message: `window ${windowOpening.id} 對應不到 wall ${windowOpening.wallId}。`,
+        wallId: windowOpening.wallId,
+        windowId: windowOpening.id,
+      });
+      continue;
+    }
+
+    if (
+      windowOpening.startOffset < 0 ||
+      windowOpening.endOffset <= windowOpening.startOffset ||
+      windowOpening.endOffset > wallLength + MIN_DIMENSION_EPSILON
+    ) {
+      errors.push({
+        code: "WINDOW_OFFSET_OUT_OF_RANGE",
+        message: `window ${windowOpening.id} offset 超出牆段 ${windowOpening.wallId} 範圍。`,
+        wallId: windowOpening.wallId,
+        windowId: windowOpening.id,
+      });
+    }
+
+    if (windowOpening.sillHeight >= options.ceilingHeight) {
+      errors.push({
+        code: "WINDOW_SILL_ABOVE_CEILING",
+        message: `window ${windowOpening.id} 的窗台高度高於或等於 ceilingHeight。`,
+        wallId: windowOpening.wallId,
+        windowId: windowOpening.id,
+      });
+      continue;
+    }
+
+    const openingBottom = Math.max(0, windowOpening.sillHeight);
+    const openingTop = Math.min(
+      options.ceilingHeight,
+      windowOpening.sillHeight + windowOpening.openingHeight,
+    );
+    if (openingTop - openingBottom <= MIN_DIMENSION_EPSILON) {
+      errors.push({
+        code: "WINDOW_OUTSIDE_WALL_HEIGHT",
+        message: `window ${windowOpening.id} 與牆高無有效交集。`,
+        wallId: windowOpening.wallId,
+        windowId: windowOpening.id,
+      });
+    }
+  }
+
   return errors;
 }
 

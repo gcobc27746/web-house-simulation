@@ -22,7 +22,8 @@ export function buildFloorMesh(data: FloorplanData): THREE.Mesh | null {
   });
 
   const floorGeometry = new THREE.ShapeGeometry(shapes);
-  floorGeometry.rotateX(-Math.PI / 2);
+  // Keep 2D Y direction aligned with 3D Z direction (avoid mirrored layout).
+  floorGeometry.rotateX(Math.PI / 2);
 
   const floorMaterial = new THREE.MeshStandardMaterial({
     color: 0xb3d7ff,

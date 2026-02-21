@@ -17,6 +17,11 @@ const withUpdatedAt = (data: FloorplanData): FloorplanData => ({
   },
 });
 
+const normalizeFloorplanData = (data: FloorplanData): FloorplanData => ({
+  ...data,
+  windows: data.windows ?? [],
+});
+
 export function useFloorplanStorage(
   data: FloorplanData,
   setData: (data: FloorplanData) => void,
@@ -44,7 +49,7 @@ export function useFloorplanStorage(
         return;
       }
 
-      setDataRef.current(parsed);
+      setDataRef.current(normalizeFloorplanData(parsed));
       setStatus({ type: "success", message: "已從 LocalStorage 恢復資料。" });
     } catch {
       setStatus({ type: "error", message: "讀取 LocalStorage 失敗。" });
@@ -103,7 +108,7 @@ export function useFloorplanStorage(
             return;
           }
 
-          setDataRef.current(parsed);
+          setDataRef.current(normalizeFloorplanData(parsed));
           setStatus({ type: "success", message: "JSON 匯入成功。" });
         } catch {
           setStatus({ type: "error", message: "匯入失敗：無法解析 JSON。" });

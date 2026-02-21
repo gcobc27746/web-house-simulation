@@ -52,7 +52,11 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
     }
   }
 
-  if (!Array.isArray(value.walls) || !Array.isArray(value.polygons)) {
+  if (
+    !Array.isArray(value.walls) ||
+    !Array.isArray(value.polygons) ||
+    (value.windows !== undefined && !Array.isArray(value.windows))
+  ) {
     return false;
   }
 
@@ -80,6 +84,40 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
     }
     if (!polygonValue.vertices.every((vertex) => isPoint2D(vertex))) return false;
     polygonIds.add(polygonValue.id);
+  }
+
+  const windowIds = new Set<string>();
+  const windows = (value.windows as unknown[] | undefined) ?? [];
+  for (const windowOpening of windows) {
+    if (!windowOpening || typeof windowOpening !== "object") return false;
+    const openingValue = windowOpening as Record<string, unknown>;
+    if (
+      typeof openingValue.id !== "string" ||
+      windowIds.has(openingValue.id) ||
+      typeof openingValue.wallId !== "string" ||
+      (openingValue.type !== "floor" &&
+        openingValue.type !== "normal" &&
+        openingValue.type !== "high") ||
+      !isFiniteNumber(openingValue.startOffset) ||
+      !isFiniteNumber(openingValue.endOffset) ||
+      !isFiniteNumber(openingValue.width) ||
+      !isFiniteNumber(openingValue.sillHeight) ||
+      !isFiniteNumber(openingValue.openingHeight)
+    ) {
+      return false;
+    }
+
+    if (
+      openingValue.startOffset < 0 ||
+      openingValue.endOffset <= openingValue.startOffset ||
+      openingValue.width <= 0 ||
+      openingValue.sillHeight < 0 ||
+      openingValue.openingHeight <= 0
+    ) {
+      return false;
+    }
+
+    windowIds.add(openingValue.id);
   }
 
   return true;

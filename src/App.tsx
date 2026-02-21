@@ -5,9 +5,11 @@ import { ImageUpload } from "./components/ImageUpload";
 import { ScaleCalibration } from "./components/ScaleCalibration";
 import { StorageControls } from "./components/StorageControls";
 import { WallDrawing } from "./components/WallDrawing";
+import { WindowMarking } from "./components/WindowMarking";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { useScaleCalibration } from "./hooks/useScaleCalibration";
 import { useWallDrawing } from "./hooks/useWallDrawing";
+import { useWindowMarking } from "./hooks/useWindowMarking";
 import { GeometryPreview } from "./step2/viewer/GeometryPreview";
 import type { LoadedImagePayload } from "./hooks/useImageUpload";
 import type { FloorplanData } from "./types/floorplan";
@@ -24,6 +26,7 @@ function createInitialData(): FloorplanData {
     },
     walls: [],
     polygons: [],
+    windows: [],
   };
 }
 
@@ -36,18 +39,23 @@ export default function App() {
   );
   const [ceilingHeight, setCeilingHeight] = useState(2.8);
   const [wallThickness, setWallThickness] = useState(0.12);
+  const [cameraHeight, setCameraHeight] = useState(1.7);
+  const [moveSpeed, setMoveSpeed] = useState(2.8);
+  const [lookSensitivity, setLookSensitivity] = useState(1);
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const calibration = useScaleCalibration();
   const wallDrawing = useWallDrawing();
+  const windowMarking = useWindowMarking();
 
   const applyLoadedData = useCallback(
     (nextData: FloorplanData) => {
       setFloorplanData(nextData);
       calibration.hydrateScale(nextData.scale ?? null);
       wallDrawing.hydrateWalls(nextData.walls);
+      windowMarking.hydrateWindows(nextData.windows ?? []);
       setIsDistanceDialogOpen(false);
     },
-    [calibration, wallDrawing],
+    [calibration, wallDrawing, windowMarking],
   );
 
   const storage = useFloorplanStorage(floorplanData, applyLoadedData);
@@ -56,6 +64,8 @@ export default function App() {
     calibration.stopCalibrationMode();
     wallDrawing.cancelCurrentWall();
     wallDrawing.stopDrawing();
+    windowMarking.stopWindowMode();
+    windowMarking.cancelDraft();
     setUploadedImage(payload.image);
     setFloorplanData((previous) => ({
       ...previous,
@@ -110,11 +120,13 @@ export default function App() {
     setIsDistanceDialogOpen(false);
     calibration.resetCalibration();
     wallDrawing.resetWalls();
+    windowMarking.resetWindows();
     setFloorplanData((previous) => ({
       ...previous,
       scale: undefined,
       walls: [],
       polygons: [],
+      windows: [],
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
@@ -127,26 +139,41 @@ export default function App() {
       ...previous,
       walls: wallDrawing.walls,
       polygons: wallDrawing.polygons,
+      windows: windowMarking.windows,
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
       },
     }));
-  }, [wallDrawing.walls, wallDrawing.polygons]);
+  }, [wallDrawing.walls, wallDrawing.polygons, windowMarking.windows]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Delete" && wallDrawing.selectedWallId) {
-        wallDrawing.deleteWall(wallDrawing.selectedWallId);
+      if (event.key === "Delete") {
+        if (windowMarking.selectedWindowId) {
+          windowMarking.deleteWindow(windowMarking.selectedWindowId);
+          return;
+        }
+        if (wallDrawing.selectedWallId) {
+          wallDrawing.deleteWall(wallDrawing.selectedWallId);
+        }
       }
       if (event.key === "Escape") {
         wallDrawing.cancelCurrentWall();
+        windowMarking.cancelDraft();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [wallDrawing.cancelCurrentWall, wallDrawing.deleteWall, wallDrawing.selectedWallId]);
+  }, [
+    wallDrawing.cancelCurrentWall,
+    wallDrawing.deleteWall,
+    wallDrawing.selectedWallId,
+    windowMarking.cancelDraft,
+    windowMarking.deleteWindow,
+    windowMarking.selectedWindowId,
+  ]);
 
   const imageInfoText = useMemo(() => {
     if (!floorplanData.image) return "尚未設定 image metadata。";
@@ -170,6 +197,7 @@ export default function App() {
           storage.clearStorage();
           calibration.resetCalibration();
           wallDrawing.resetWalls();
+          windowMarking.resetWindows();
           setUploadedImage(null);
           setIsDistanceDialogOpen(false);
           setFloorplanData(createInitialData());
@@ -196,52 +224,88 @@ export default function App() {
         }}
         onResetCalibration={onResetCalibration}
       />
-      <WallDrawing
-        canDraw={Boolean(uploadedImage && calibration.scale)}
-        isDrawingMode={wallDrawing.isDrawingMode}
-        isContinuousMode={wallDrawing.isContinuousMode}
-        wallsCount={wallDrawing.walls.length}
-        polygonsCount={wallDrawing.polygons.length}
-        selectedWallId={wallDrawing.selectedWallId}
-        canUndo={wallDrawing.canUndo}
-        canRedo={wallDrawing.canRedo}
-        onToggleDrawingMode={() => {
-          setIsDistanceDialogOpen(false);
-          calibration.stopCalibrationMode();
-          if (wallDrawing.isDrawingMode) {
-            wallDrawing.cancelCurrentWall();
-            wallDrawing.stopDrawing();
-          } else {
-            if (calibration.scale) {
-              wallDrawing.startDrawing();
+      <div className="editor-layout">
+        <WallDrawing
+          canDraw={Boolean(uploadedImage && calibration.scale)}
+          isDrawingMode={wallDrawing.isDrawingMode}
+          isContinuousMode={wallDrawing.isContinuousMode}
+          wallsCount={wallDrawing.walls.length}
+          polygonsCount={wallDrawing.polygons.length}
+          selectedWallId={wallDrawing.selectedWallId}
+          canUndo={wallDrawing.canUndo}
+          canRedo={wallDrawing.canRedo}
+          onToggleDrawingMode={() => {
+            setIsDistanceDialogOpen(false);
+            calibration.stopCalibrationMode();
+            windowMarking.stopWindowMode();
+            windowMarking.cancelDraft();
+            if (wallDrawing.isDrawingMode) {
+              wallDrawing.cancelCurrentWall();
+              wallDrawing.stopDrawing();
+            } else {
+              if (calibration.scale) {
+                wallDrawing.startDrawing();
+              }
             }
+          }}
+          onToggleContinuousMode={wallDrawing.setContinuousMode}
+          onUndo={wallDrawing.undo}
+          onRedo={wallDrawing.redo}
+          onDeleteSelected={() => {
+            if (!wallDrawing.selectedWallId) return;
+            wallDrawing.deleteWall(wallDrawing.selectedWallId);
+          }}
+          windowControls={
+            <WindowMarking
+              canMark={Boolean(uploadedImage && calibration.scale && wallDrawing.walls.length > 0)}
+              isWindowMode={windowMarking.isWindowMode}
+              selectedType={windowMarking.selectedType}
+              windowsCount={windowMarking.windows.length}
+              selectedWindowId={windowMarking.selectedWindowId}
+              onToggleWindowMode={() => {
+                setIsDistanceDialogOpen(false);
+                calibration.stopCalibrationMode();
+                wallDrawing.cancelCurrentWall();
+                wallDrawing.stopDrawing();
+                if (windowMarking.isWindowMode) {
+                  windowMarking.stopWindowMode();
+                  windowMarking.cancelDraft();
+                } else if (uploadedImage && calibration.scale && wallDrawing.walls.length > 0) {
+                  windowMarking.startWindowMode();
+                }
+              }}
+              onSelectType={windowMarking.setWindowType}
+              onDeleteSelectedWindow={() => {
+                if (!windowMarking.selectedWindowId) return;
+                windowMarking.deleteWindow(windowMarking.selectedWindowId);
+              }}
+            />
           }
-        }}
-        onToggleContinuousMode={wallDrawing.setContinuousMode}
-        onUndo={wallDrawing.undo}
-        onRedo={wallDrawing.redo}
-        onDeleteSelected={() => {
-          if (!wallDrawing.selectedWallId) return;
-          wallDrawing.deleteWall(wallDrawing.selectedWallId);
-        }}
-      />
-      <Canvas
-        image={uploadedImage}
-        isCalibrationMode={calibration.isCalibrationMode}
-        measurementPoints={calibration.measurementPoints}
-        scale={calibration.scale}
-        onAddMeasurementPoint={calibration.addMeasurementPoint}
-        isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
-        walls={wallDrawing.walls}
-        polygons={wallDrawing.polygons}
-        selectedWallId={wallDrawing.selectedWallId}
-        currentWall={wallDrawing.currentWall}
-        onBeginWall={wallDrawing.beginWall}
-        onUpdateCurrentWall={wallDrawing.updateCurrentWall}
-        onCompleteCurrentWall={wallDrawing.completeCurrentWall}
-        onSelectWall={wallDrawing.selectWall}
-        onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
-      />
+        />
+        <Canvas
+          image={uploadedImage}
+          isCalibrationMode={calibration.isCalibrationMode}
+          measurementPoints={calibration.measurementPoints}
+          scale={calibration.scale}
+          onAddMeasurementPoint={calibration.addMeasurementPoint}
+          isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
+          walls={wallDrawing.walls}
+          polygons={wallDrawing.polygons}
+          selectedWallId={wallDrawing.selectedWallId}
+          currentWall={wallDrawing.currentWall}
+          onBeginWall={wallDrawing.beginWall}
+          onUpdateCurrentWall={wallDrawing.updateCurrentWall}
+          onCompleteCurrentWall={wallDrawing.completeCurrentWall}
+          onSelectWall={wallDrawing.selectWall}
+          onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
+          isWindowMode={windowMarking.isWindowMode}
+          windows={windowMarking.windows}
+          selectedWindowId={windowMarking.selectedWindowId}
+          selectedWindowType={windowMarking.selectedType}
+          onAddWindowByOffsets={windowMarking.addWindowByOffsets}
+          onSelectWindow={windowMarking.selectWindow}
+        />
+      </div>
       <DistanceInputDialog
         isOpen={isDistanceDialogOpen}
         pixelDistance={measurementDistancePx}
@@ -249,7 +313,7 @@ export default function App() {
         onCancel={onCancelDistance}
       />
       <section className="panel">
-        <h2>Step2 2.4 Geometry Generation</h2>
+        <h2>Step2 2.5 Camera & Controls</h2>
         <div className="geometry-settings">
           <label>
             天花板高度 (m)
@@ -271,11 +335,47 @@ export default function App() {
               onChange={(event) => setWallThickness(Number(event.target.value) || 0)}
             />
           </label>
+          <label>
+            相機高度 (m)
+            <input
+              type="number"
+              min={1}
+              max={2.2}
+              step={0.1}
+              value={cameraHeight}
+              onChange={(event) => setCameraHeight(Number(event.target.value) || 0)}
+            />
+          </label>
+          <label>
+            移動速度 (m/s)
+            <input
+              type="number"
+              min={0.5}
+              max={10}
+              step={0.1}
+              value={moveSpeed}
+              onChange={(event) => setMoveSpeed(Number(event.target.value) || 0)}
+            />
+          </label>
+          <label>
+            滑鼠靈敏度
+            <input
+              type="number"
+              min={0.2}
+              max={3}
+              step={0.1}
+              value={lookSensitivity}
+              onChange={(event) => setLookSensitivity(Number(event.target.value) || 0)}
+            />
+          </label>
         </div>
         <GeometryPreview
           floorplanData={floorplanData}
           ceilingHeight={ceilingHeight}
           wallThickness={wallThickness}
+          cameraHeight={cameraHeight}
+          moveSpeed={moveSpeed}
+          lookSensitivity={lookSensitivity}
         />
       </section>
 
@@ -295,6 +395,7 @@ export default function App() {
               scale: floorplanData.scale ?? null,
               walls: floorplanData.walls,
               polygons: floorplanData.polygons,
+              windows: floorplanData.windows,
             },
             null,
             2,

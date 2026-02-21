@@ -5,6 +5,7 @@ export interface GeometryBuildError {
   message: string;
   wallId?: string;
   polygonId?: string;
+  windowId?: string;
 }
 
 export interface GeometryBuildOptions {

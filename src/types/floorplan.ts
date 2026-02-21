@@ -33,11 +33,25 @@ export interface FloorplanPolygon {
   closed: boolean;
 }
 
+export type WindowType = "floor" | "normal" | "high";
+
+export interface WindowOpening {
+  id: string;
+  wallId: string;
+  type: WindowType;
+  startOffset: number;
+  endOffset: number;
+  width: number;
+  sillHeight: number;
+  openingHeight: number;
+}
+
 export interface FloorplanData {
   meta: FloorplanMeta;
   scale?: FloorplanScale;
   image?: FloorplanImageInfo;
   walls: WallSegment[];
   polygons: FloorplanPolygon[];
+  windows: WindowOpening[];
 }
 
