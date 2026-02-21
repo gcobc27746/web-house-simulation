@@ -8,6 +8,7 @@ import { WallDrawing } from "./components/WallDrawing";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { useScaleCalibration } from "./hooks/useScaleCalibration";
 import { useWallDrawing } from "./hooks/useWallDrawing";
+import { GeometryPreview } from "./step2/viewer/GeometryPreview";
 import type { LoadedImagePayload } from "./hooks/useImageUpload";
 import type { FloorplanData } from "./types/floorplan";
 
@@ -33,6 +34,8 @@ export default function App() {
   const [uploadedImage, setUploadedImage] = useState<HTMLImageElement | null>(
     null,
   );
+  const [ceilingHeight, setCeilingHeight] = useState(2.8);
+  const [wallThickness, setWallThickness] = useState(0.12);
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const calibration = useScaleCalibration();
   const wallDrawing = useWallDrawing();
@@ -245,6 +248,36 @@ export default function App() {
         onConfirm={onConfirmDistance}
         onCancel={onCancelDistance}
       />
+      <section className="panel">
+        <h2>Step2 2.4 Geometry Generation</h2>
+        <div className="geometry-settings">
+          <label>
+            天花板高度 (m)
+            <input
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={ceilingHeight}
+              onChange={(event) => setCeilingHeight(Number(event.target.value) || 0)}
+            />
+          </label>
+          <label>
+            牆厚 (m)
+            <input
+              type="number"
+              min={0.01}
+              step={0.01}
+              value={wallThickness}
+              onChange={(event) => setWallThickness(Number(event.target.value) || 0)}
+            />
+          </label>
+        </div>
+        <GeometryPreview
+          floorplanData={floorplanData}
+          ceilingHeight={ceilingHeight}
+          wallThickness={wallThickness}
+        />
+      </section>
 
       <section className="panel">
         <h2>資料狀態</h2>
