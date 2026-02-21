@@ -1,6 +1,13 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "./components/Canvas";
+import { DistanceInputDialog } from "./components/DistanceInputDialog";
 import { ImageUpload } from "./components/ImageUpload";
+import { ScaleCalibration } from "./components/ScaleCalibration";
+import { StorageControls } from "./components/StorageControls";
+import { WallDrawing } from "./components/WallDrawing";
+import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
+import { useScaleCalibration } from "./hooks/useScaleCalibration";
+import { useWallDrawing } from "./hooks/useWallDrawing";
 import type { LoadedImagePayload } from "./hooks/useImageUpload";
 import type { FloorplanData } from "./types/floorplan";
 
@@ -26,8 +33,26 @@ export default function App() {
   const [uploadedImage, setUploadedImage] = useState<HTMLImageElement | null>(
     null,
   );
+  const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
+  const calibration = useScaleCalibration();
+  const wallDrawing = useWallDrawing();
+
+  const applyLoadedData = useCallback(
+    (nextData: FloorplanData) => {
+      setFloorplanData(nextData);
+      calibration.hydrateScale(nextData.scale ?? null);
+      wallDrawing.hydrateWalls(nextData.walls);
+      setIsDistanceDialogOpen(false);
+    },
+    [calibration, wallDrawing],
+  );
+
+  const storage = useFloorplanStorage(floorplanData, applyLoadedData);
 
   const onImageLoaded = (payload: LoadedImagePayload) => {
+    calibration.stopCalibrationMode();
+    wallDrawing.cancelCurrentWall();
+    wallDrawing.stopDrawing();
     setUploadedImage(payload.image);
     setFloorplanData((previous) => ({
       ...previous,
@@ -43,6 +68,83 @@ export default function App() {
     }));
   };
 
+  const measurementDistancePx = useMemo(() => {
+    if (calibration.measurementPoints.length !== 2) return null;
+    return Math.hypot(
+      calibration.measurementPoints[1].x - calibration.measurementPoints[0].x,
+      calibration.measurementPoints[1].y - calibration.measurementPoints[0].y,
+    );
+  }, [calibration.measurementPoints]);
+
+  useEffect(() => {
+    if (calibration.isCalibrationMode && calibration.measurementPoints.length === 2) {
+      setIsDistanceDialogOpen(true);
+    }
+  }, [calibration.isCalibrationMode, calibration.measurementPoints.length]);
+
+  const onConfirmDistance = (distance: number) => {
+    const nextScale = calibration.calculateScale(distance);
+    if (!nextScale) return false;
+
+    setFloorplanData((previous) => ({
+      ...previous,
+      scale: nextScale,
+      meta: {
+        ...previous.meta,
+        updatedAt: nowIso(),
+      },
+    }));
+    setIsDistanceDialogOpen(false);
+    return true;
+  };
+
+  const onCancelDistance = () => {
+    setIsDistanceDialogOpen(false);
+    calibration.clearMeasurement();
+  };
+
+  const onResetCalibration = () => {
+    setIsDistanceDialogOpen(false);
+    calibration.resetCalibration();
+    wallDrawing.resetWalls();
+    setFloorplanData((previous) => ({
+      ...previous,
+      scale: undefined,
+      walls: [],
+      polygons: [],
+      meta: {
+        ...previous.meta,
+        updatedAt: nowIso(),
+      },
+    }));
+  };
+
+  useEffect(() => {
+    setFloorplanData((previous) => ({
+      ...previous,
+      walls: wallDrawing.walls,
+      polygons: wallDrawing.polygons,
+      meta: {
+        ...previous.meta,
+        updatedAt: nowIso(),
+      },
+    }));
+  }, [wallDrawing.walls, wallDrawing.polygons]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Delete" && wallDrawing.selectedWallId) {
+        wallDrawing.deleteWall(wallDrawing.selectedWallId);
+      }
+      if (event.key === "Escape") {
+        wallDrawing.cancelCurrentWall();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [wallDrawing.cancelCurrentWall, wallDrawing.deleteWall, wallDrawing.selectedWallId]);
+
   const imageInfoText = useMemo(() => {
     if (!floorplanData.image) return "尚未設定 image metadata。";
     return `${floorplanData.image.filename} (${floorplanData.image.width}x${floorplanData.image.height})`;
@@ -51,21 +153,115 @@ export default function App() {
   return (
     <main className="layout">
       <header className="header">
-        <h1>Step1 - Floorplan Image Upload</h1>
+        <h1>Step1 - Floorplan Calibration</h1>
         <p>React + TypeScript + react-konva</p>
       </header>
 
       <ImageUpload onImageLoaded={onImageLoaded} />
-      <Canvas image={uploadedImage} />
+      <StorageControls
+        onExport={storage.exportJSON}
+        onImport={storage.importJSON}
+        onClear={() => {
+          const confirmed = window.confirm("確定要清除本地資料嗎？此動作無法復原。");
+          if (!confirmed) return;
+          storage.clearStorage();
+          calibration.resetCalibration();
+          wallDrawing.resetWalls();
+          setUploadedImage(null);
+          setIsDistanceDialogOpen(false);
+          setFloorplanData(createInitialData());
+        }}
+      />
+      {storage.status && (
+        <section className={`panel storage-status ${storage.status.type}`}>
+          <p>{storage.status.message}</p>
+          <button type="button" className="btn btn-link" onClick={storage.clearStatus}>
+            關閉
+          </button>
+        </section>
+      )}
+      <ScaleCalibration
+        canCalibrate={Boolean(uploadedImage)}
+        isCalibrationMode={calibration.isCalibrationMode}
+        measurementPointsCount={calibration.measurementPoints.length}
+        pixelDistance={measurementDistancePx}
+        scale={calibration.scale}
+        onStartCalibration={() => {
+          wallDrawing.stopDrawing();
+          setIsDistanceDialogOpen(false);
+          calibration.startCalibration();
+        }}
+        onResetCalibration={onResetCalibration}
+      />
+      <WallDrawing
+        canDraw={Boolean(uploadedImage && calibration.scale)}
+        isDrawingMode={wallDrawing.isDrawingMode}
+        isContinuousMode={wallDrawing.isContinuousMode}
+        wallsCount={wallDrawing.walls.length}
+        polygonsCount={wallDrawing.polygons.length}
+        selectedWallId={wallDrawing.selectedWallId}
+        canUndo={wallDrawing.canUndo}
+        canRedo={wallDrawing.canRedo}
+        onToggleDrawingMode={() => {
+          setIsDistanceDialogOpen(false);
+          calibration.stopCalibrationMode();
+          if (wallDrawing.isDrawingMode) {
+            wallDrawing.cancelCurrentWall();
+            wallDrawing.stopDrawing();
+          } else {
+            if (calibration.scale) {
+              wallDrawing.startDrawing();
+            }
+          }
+        }}
+        onToggleContinuousMode={wallDrawing.setContinuousMode}
+        onUndo={wallDrawing.undo}
+        onRedo={wallDrawing.redo}
+        onDeleteSelected={() => {
+          if (!wallDrawing.selectedWallId) return;
+          wallDrawing.deleteWall(wallDrawing.selectedWallId);
+        }}
+      />
+      <Canvas
+        image={uploadedImage}
+        isCalibrationMode={calibration.isCalibrationMode}
+        measurementPoints={calibration.measurementPoints}
+        scale={calibration.scale}
+        onAddMeasurementPoint={calibration.addMeasurementPoint}
+        isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
+        walls={wallDrawing.walls}
+        polygons={wallDrawing.polygons}
+        selectedWallId={wallDrawing.selectedWallId}
+        currentWall={wallDrawing.currentWall}
+        onBeginWall={wallDrawing.beginWall}
+        onUpdateCurrentWall={wallDrawing.updateCurrentWall}
+        onCompleteCurrentWall={wallDrawing.completeCurrentWall}
+        onSelectWall={wallDrawing.selectWall}
+        onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
+      />
+      <DistanceInputDialog
+        isOpen={isDistanceDialogOpen}
+        pixelDistance={measurementDistancePx}
+        onConfirm={onConfirmDistance}
+        onCancel={onCancelDistance}
+      />
 
       <section className="panel">
-        <h2>image 欄位狀態</h2>
+        <h2>資料狀態</h2>
         <p>{imageInfoText}</p>
+        {!uploadedImage && floorplanData.image && (
+          <p className="calibration-status">
+            已恢復資料，但圖片檔案需重新上傳（JSON/LocalStorage 不含圖片內容）。
+          </p>
+        )}
         <pre className="json-view">
           {JSON.stringify(
             {
               meta: floorplanData.meta,
               image: floorplanData.image ?? null,
+              scale: floorplanData.scale ?? null,
+              walls: floorplanData.walls,
+              polygons: floorplanData.polygons,
             },
             null,
             2,
