@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FloorplanData } from "../types/floorplan";
 import { validateFloorplanData } from "../utils/dataValidator";
+import { FURNITURE_CATALOG_ITEMS } from "../furniture/catalog";
 
 const STORAGE_KEY = "floorplan-editor-data";
 
@@ -20,6 +21,16 @@ const withUpdatedAt = (data: FloorplanData): FloorplanData => ({
 const normalizeFloorplanData = (data: FloorplanData): FloorplanData => ({
   ...data,
   windows: data.windows ?? [],
+  furniture: (data.furniture ?? []).map((item) => {
+    const legacyType = (item as unknown as { type?: string }).type;
+    if (!item.catalogId && legacyType === "bed") {
+      return {
+        ...item,
+        catalogId: FURNITURE_CATALOG_ITEMS[0]?.id ?? "bed-fullsize-black-v1",
+      };
+    }
+    return item;
+  }),
 });
 
 export function useFloorplanStorage(

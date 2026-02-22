@@ -3,6 +3,7 @@ import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } fr
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { CurrentWallPreview, WallEndpoint } from "../hooks/useWallDrawing";
 import type {
+  FurnitureItem,
   FloorplanPolygon,
   FloorplanScale,
   Point2D,
@@ -10,6 +11,7 @@ import type {
   WindowOpening,
   WindowType,
 } from "../types/floorplan";
+import { getFurnitureCatalogItem } from "../furniture/catalog";
 import { meterToPixel, pixelToMeter } from "../utils/coordinateConverter";
 import { alignWithShift, findSnapPoint } from "../utils/snapHelper";
 
@@ -35,6 +37,10 @@ interface CanvasProps {
   selectedWindowType: WindowType;
   onAddWindowByOffsets: (wallId: string, startOffset: number, endOffset: number) => void;
   onSelectWindow: (id: string | null) => void;
+  furniture: FurnitureItem[];
+  selectedFurnitureId: string | null;
+  onSelectFurniture: (id: string | null) => void;
+  onMoveFurniture: (id: string, position: Point2D) => void;
   className?: string;
   onCanvasStatusChange?: (status: {
     cursor: Point2D | null;
@@ -78,6 +84,10 @@ export function Canvas({
   selectedWindowType,
   onAddWindowByOffsets,
   onSelectWindow,
+  furniture,
+  selectedFurnitureId,
+  onSelectFurniture,
+  onMoveFurniture,
   className,
   onCanvasStatusChange,
 }: CanvasProps) {
@@ -288,6 +298,22 @@ export function Canvas({
     return { x, y, width, height };
   }, [windowSelection]);
 
+  const pixelFurniture = useMemo(() => {
+    if (!scale) return [];
+    return furniture.map((item) => {
+      const catalog = getFurnitureCatalogItem(item.catalogId);
+      const width = item.width > 0 ? item.width : (catalog?.footprint.width ?? 1);
+      const depth = item.depth > 0 ? item.depth : (catalog?.footprint.depth ?? 1);
+      return {
+        ...item,
+        center: meterToPixel(item.position.x, item.position.y, scale.pixelsPerMeter),
+        widthPx: width / scale.pixelsPerMeter,
+        depthPx: depth / scale.pixelsPerMeter,
+        selected: selectedFurnitureId === item.id,
+      };
+    });
+  }, [furniture, scale, selectedFurnitureId]);
+
   const clipSegmentWithRect = (
     start: Point2D,
     end: Point2D,
@@ -426,6 +452,9 @@ export function Canvas({
     if (event.target.hasName("window-line")) {
       return;
     }
+    if (event.target.hasName("furniture-footprint")) {
+      return;
+    }
 
     const stage = event.target.getStage();
     if (!stage) return;
@@ -443,6 +472,7 @@ export function Canvas({
 
     if (isWindowMode) {
       onSelectWall(null);
+      onSelectFurniture(null);
       setWindowSelection({ start: imagePoint, end: imagePoint });
       return;
     }
@@ -461,6 +491,7 @@ export function Canvas({
     );
 
     if (!currentWall) {
+      onSelectFurniture(null);
       onBeginWall(meterPoint);
     } else {
       onCompleteWall(meterPoint);
@@ -681,6 +712,61 @@ export function Canvas({
                       onSelectWindow(segment.id);
                     }}
                   />
+                ))}
+                {pixelFurniture.map((item) => (
+                  <Group
+                    key={item.id}
+                    x={item.center.x}
+                    y={item.center.y}
+                    rotation={item.rotationDeg}
+                    draggable={!isWindowMode}
+                    onDragStart={(event) => {
+                      event.cancelBubble = true;
+                      onSelectFurniture(item.id);
+                      onSelectWall(null);
+                      onSelectWindow(null);
+                    }}
+                    onDragEnd={(event) => {
+                      event.cancelBubble = true;
+                      if (!scale) return;
+                      const clamped = clampToImageBounds({
+                        x: event.target.x(),
+                        y: event.target.y(),
+                      });
+                      const meter = pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter);
+                      onMoveFurniture(item.id, meter);
+                    }}
+                  >
+                    <Rect
+                      name="furniture-footprint"
+                      x={-item.widthPx / 2}
+                      y={-item.depthPx / 2}
+                      width={item.widthPx}
+                      height={item.depthPx}
+                      fill={item.selected ? "rgba(255, 153, 0, 0.22)" : "rgba(74, 222, 128, 0.2)"}
+                      stroke={item.selected ? "#ff8a00" : "#4ade80"}
+                      strokeWidth={item.selected ? 2.2 / transform.scale : 1.7 / transform.scale}
+                      strokeScaleEnabled={false}
+                      onMouseDown={() => {
+                        onSelectFurniture(item.id);
+                        onSelectWall(null);
+                        onSelectWindow(null);
+                      }}
+                      onClick={() => {
+                        onSelectFurniture(item.id);
+                        onSelectWall(null);
+                        onSelectWindow(null);
+                      }}
+                    />
+                    <Line
+                      name="furniture-footprint"
+                      points={[0, 0, 0, -item.depthPx / 2 + 8 / transform.scale]}
+                      stroke={item.selected ? "#ff8a00" : "#22c55e"}
+                      strokeWidth={2 / transform.scale}
+                      strokeScaleEnabled={false}
+                      listening={false}
+                    />
+                  </Group>
                 ))}
                 {selectionRect && (
                   <Rect

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import type { FloorplanData } from "../../types/floorplan";
 import { buildCollisionData, resolveMovement } from "../collision";
 import { buildGeometryFromFloorplan } from "../geometry";
+import { buildFurnitureMeshes } from "./furniture/buildFurnitureMeshes";
 
 interface GeometryPreviewProps {
   floorplanData: FloorplanData;
@@ -107,6 +109,7 @@ export function GeometryPreview({
   const contentRootRef = useRef<THREE.Group | null>(null);
   const debugRootRef = useRef<THREE.Group | null>(null);
   const controlsRef = useRef<PointerLockControls | null>(null);
+  const orbitControlsRef = useRef<OrbitControls | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const previousTimestampRef = useRef<number | null>(null);
   const shouldAnimateRef = useRef(false);
@@ -129,6 +132,7 @@ export function GeometryPreview({
     maxY: 5,
   });
   const minimapPoseRef = useRef<MinimapPose | null>(null);
+  const furnitureBuildTokenRef = useRef(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [isFirstPersonMode, setIsFirstPersonMode] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
@@ -220,6 +224,10 @@ export function GeometryPreview({
     if (!camera) return;
     camera.position.copy(PREVIEW_CAMERA_POSITION);
     camera.lookAt(previewLookAtRef.current);
+    if (orbitControlsRef.current) {
+      orbitControlsRef.current.target.copy(previewLookAtRef.current);
+      orbitControlsRef.current.update();
+    }
   };
 
   const resetFirstPersonPose = () => {
@@ -272,6 +280,12 @@ export function GeometryPreview({
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = lookSensitivity;
 
+    const orbitControls = new OrbitControls(camera, renderer.domElement);
+    orbitControls.enableDamping = true;
+    orbitControls.dampingFactor = 0.05;
+    orbitControls.maxPolarAngle = Math.PI / 2 - 0.05;
+    orbitControls.target.copy(previewLookAtRef.current);
+
     const onControlLock = () => {
       isPointerLockedRef.current = true;
       setIsPointerLocked(true);
@@ -311,6 +325,7 @@ export function GeometryPreview({
     contentRootRef.current = contentRoot;
     debugRootRef.current = debugRoot;
     controlsRef.current = controls;
+    orbitControlsRef.current = orbitControls;
     shouldAnimateRef.current = true;
 
     const worldForward = new THREE.Vector3();
@@ -367,6 +382,28 @@ export function GeometryPreview({
           collisionHitRef.current = false;
           setIsCollisionHit(false);
         }
+      } else if (delta > 0 && !isFirstPersonModeRef.current && orbitControlsRef.current) {
+        camera.getWorldDirection(worldForward);
+        worldForward.y = 0;
+        if (worldForward.lengthSq() > 0) {
+          worldForward.normalize();
+        }
+        rightVector.crossVectors(worldForward, upVector).normalize();
+
+        moveDirection.set(0, 0, 0);
+        if (keyStateRef.current.forward) moveDirection.add(worldForward);
+        if (keyStateRef.current.backward) moveDirection.sub(worldForward);
+        if (keyStateRef.current.right) moveDirection.add(rightVector);
+        if (keyStateRef.current.left) moveDirection.sub(rightVector);
+
+        if (moveDirection.lengthSq() > 0) {
+          moveDirection.normalize();
+          const displacement = moveDirection.multiplyScalar(moveSpeed * delta);
+          camera.position.add(displacement);
+          orbitControlsRef.current.target.add(displacement);
+        }
+
+        orbitControlsRef.current.update();
       }
 
       const forwardForMap = new THREE.Vector3();
@@ -431,6 +468,7 @@ export function GeometryPreview({
       controls.removeEventListener("lock", onControlLock);
       controls.removeEventListener("unlock", onControlUnlock);
       controls.unlock();
+      orbitControls.dispose();
       resizeObserver.disconnect();
       contentRoot.traverse(disposeObject3D);
       debugRoot.traverse(disposeObject3D);
@@ -447,6 +485,7 @@ export function GeometryPreview({
       contentRootRef.current = null;
       debugRootRef.current = null;
       controlsRef.current = null;
+      orbitControlsRef.current = null;
     };
   }, [cameraHeight, collisionRadius, lookSensitivity, moveSpeed]);
 
@@ -461,6 +500,9 @@ export function GeometryPreview({
     const camera = cameraRef.current;
     const contentRoot = contentRootRef.current;
     if (!scene || !camera || !contentRoot) return;
+
+    const buildToken = furnitureBuildTokenRef.current + 1;
+    furnitureBuildTokenRef.current = buildToken;
 
     while (contentRoot.children.length > 0) {
       const child = contentRoot.children[0];
@@ -496,6 +538,10 @@ export function GeometryPreview({
       if (!isFirstPersonModeRef.current) {
         camera.position.set(center.x + radius, center.y + radius * 0.8, center.z + radius);
         camera.lookAt(center);
+        if (orbitControlsRef.current) {
+          orbitControlsRef.current.target.copy(center);
+          orbitControlsRef.current.update();
+        }
       }
     } else {
       lastSceneCenterRef.current.set(0, 0, 0);
@@ -507,6 +553,30 @@ export function GeometryPreview({
 
     setErrors(result.errors.map((error) => error.message));
     renderScene();
+
+    if ((floorplanData.furniture?.length ?? 0) > 0) {
+      void (async () => {
+        try {
+          const furnitureMeshes = await buildFurnitureMeshes(floorplanData.furniture ?? []);
+          const latestContentRoot = contentRootRef.current;
+          if (!latestContentRoot || furnitureBuildTokenRef.current !== buildToken) {
+            for (const mesh of furnitureMeshes) {
+              mesh.traverse(disposeObject3D);
+            }
+            return;
+          }
+          for (const mesh of furnitureMeshes) {
+            latestContentRoot.add(mesh);
+          }
+          renderScene();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "載入家具模型失敗。";
+          if (furnitureBuildTokenRef.current === buildToken) {
+            setErrors((previous) => [...previous, message]);
+          }
+        }
+      })();
+    }
   }, [ceilingHeight, floorplanData, showCollisionDebug, wallThickness]);
 
   useEffect(() => {
@@ -520,12 +590,18 @@ export function GeometryPreview({
 
     if (isFirstPersonMode) {
       resetFirstPersonPose();
+      if (orbitControlsRef.current) {
+        orbitControlsRef.current.enabled = false;
+      }
     } else {
       collisionHitRef.current = false;
       setIsCollisionHit(false);
       resetToPreviewCamera();
       if (controlsRef.current?.isLocked) {
         controlsRef.current.unlock();
+      }
+      if (orbitControlsRef.current) {
+        orbitControlsRef.current.enabled = true;
       }
     }
     renderScene();
@@ -702,9 +778,11 @@ export function GeometryPreview({
         <div ref={mountRef} className="geometry-canvas h-full w-full" />
 
         <div className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white backdrop-blur-md">
-          {isPointerLocked
-            ? "滑鼠已鎖定，使用 WASD 進行移動"
-            : "點擊進入視窗並鎖定滑鼠，按 ESC 退出"}
+          {isFirstPersonMode
+            ? isPointerLocked
+              ? "滑鼠已鎖定，使用 WASD 進行移動"
+              : "點擊進入視窗並鎖定滑鼠，按 ESC 退出"
+            : "滑鼠拖曳旋轉/縮放視角，使用 WASD 水平移動"}
         </div>
 
         <div className="pointer-events-none absolute bottom-7 left-1/2 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/75 px-4 py-3 text-xs text-white backdrop-blur-md">

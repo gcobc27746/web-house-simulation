@@ -55,7 +55,8 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
   if (
     !Array.isArray(value.walls) ||
     !Array.isArray(value.polygons) ||
-    (value.windows !== undefined && !Array.isArray(value.windows))
+    (value.windows !== undefined && !Array.isArray(value.windows)) ||
+    (value.furniture !== undefined && !Array.isArray(value.furniture))
   ) {
     return false;
   }
@@ -119,6 +120,29 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
     }
 
     windowIds.add(openingValue.id);
+  }
+
+  const furnitureIds = new Set<string>();
+  const furnitureList = (value.furniture as unknown[] | undefined) ?? [];
+  for (const furniture of furnitureList) {
+    if (!furniture || typeof furniture !== "object") return false;
+    const furnitureValue = furniture as Record<string, unknown>;
+    const hasCatalogId = typeof furnitureValue.catalogId === "string";
+    const isLegacyBed = furnitureValue.catalogId === undefined && furnitureValue.type === "bed";
+    if (
+      typeof furnitureValue.id !== "string" ||
+      furnitureIds.has(furnitureValue.id) ||
+      (!hasCatalogId && !isLegacyBed) ||
+      !isPoint2D(furnitureValue.position) ||
+      !isFiniteNumber(furnitureValue.rotationDeg) ||
+      !isFiniteNumber(furnitureValue.width) ||
+      !isFiniteNumber(furnitureValue.depth) ||
+      furnitureValue.width <= 0 ||
+      furnitureValue.depth <= 0
+    ) {
+      return false;
+    }
+    furnitureIds.add(furnitureValue.id);
   }
 
   return true;

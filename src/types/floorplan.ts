@@ -34,6 +34,8 @@ export interface FloorplanPolygon {
 }
 
 export type WindowType = "floor" | "normal" | "high" | "balcony";
+export type FurnitureCategory = "bed" | "sofa";
+export type FurnitureCatalogId = string;
 
 export interface WindowOpening {
   id: string;
@@ -46,6 +48,49 @@ export interface WindowOpening {
   openingHeight: number;
 }
 
+export interface FurnitureItem {
+  id: string;
+  catalogId: FurnitureCatalogId;
+  position: Point2D;
+  rotationDeg: number;
+  width: number;
+  depth: number;
+}
+
+export interface FurnitureCatalogItem {
+  id: FurnitureCatalogId;
+  label: string;
+  category: FurnitureCategory;
+  tags: string[];
+  thumbnailUrl?: string;
+  footprint: {
+    width: number;
+    depth: number;
+  };
+  model:
+    | {
+        format: "obj";
+        objUrl: string;
+        mtlUrl: string;
+        sourceSize: {
+          width: number;
+          depth: number;
+          height: number;
+        };
+        targetHeight: number;
+      }
+    | {
+        format: "dae";
+        daeUrl: string;
+        sourceSize: {
+          width: number;
+          depth: number;
+          height: number;
+        };
+        targetHeight: number;
+      };
+}
+
 export interface FloorplanData {
   meta: FloorplanMeta;
   scale?: FloorplanScale;
@@ -53,5 +98,6 @@ export interface FloorplanData {
   walls: WallSegment[];
   polygons: FloorplanPolygon[];
   windows: WindowOpening[];
+  furniture: FurnitureItem[];
 }
 

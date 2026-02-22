@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "./components/Canvas";
 import { DistanceInputDialog } from "./components/DistanceInputDialog";
+import { FurniturePanel } from "./components/FurniturePanel";
 import { ImageUpload } from "./components/ImageUpload";
 import { ScaleCalibration } from "./components/ScaleCalibration";
 import { StorageControls } from "./components/StorageControls";
 import { WallDrawing } from "./components/WallDrawing";
 import { WindowMarking } from "./components/WindowMarking";
+import { getFurnitureCatalogItem } from "./furniture/catalog";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { useScaleCalibration } from "./hooks/useScaleCalibration";
 import { useWallDrawing } from "./hooks/useWallDrawing";
 import { useWindowMarking } from "./hooks/useWindowMarking";
 import { GeometryPreview } from "./step2/viewer/GeometryPreview";
 import type { LoadedImagePayload } from "./hooks/useImageUpload";
-import type { FloorplanData } from "./types/floorplan";
+import type { FloorplanData, FurnitureCatalogId, FurnitureItem, Point2D } from "./types/floorplan";
 
 const nowIso = () => new Date().toISOString();
 type ViewMode = "design" | "viewer";
-type ToolMode = "upload" | "calibrate" | "wall" | "layers" | "settings";
+type ToolMode = "upload" | "calibrate" | "wall" | "furniture" | "layers" | "settings";
 
 function createInitialData(): FloorplanData {
   const createdAt = nowIso();
@@ -29,8 +31,35 @@ function createInitialData(): FloorplanData {
     walls: [],
     polygons: [],
     windows: [],
+    furniture: [],
   };
 }
+
+const createFurnitureId = () =>
+  `furniture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const normalizeRotation = (rotationDeg: number) => {
+  const normalized = rotationDeg % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+};
+
+const getDefaultFurniturePosition = (data: FloorplanData): Point2D => {
+  if (data.walls.length === 0) return { x: 1.5, y: 1.5 };
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const wall of data.walls) {
+    minX = Math.min(minX, wall.start.x, wall.end.x);
+    maxX = Math.max(maxX, wall.start.x, wall.end.x);
+    minY = Math.min(minY, wall.start.y, wall.end.y);
+    maxY = Math.max(maxY, wall.start.y, wall.end.y);
+  }
+  return {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+  };
+};
 
 export default function App() {
   const [floorplanData, setFloorplanData] = useState<FloorplanData>(
@@ -49,6 +78,8 @@ export default function App() {
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const [activeView, setActiveView] = useState<ViewMode>("design");
   const [activeTool, setActiveTool] = useState<ToolMode>("upload");
+  const [furniture, setFurniture] = useState<FurnitureItem[]>([]);
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
   const [canvasStatus, setCanvasStatus] = useState<{
     cursor: { x: number; y: number } | null;
     zoomPercent: number;
@@ -66,6 +97,8 @@ export default function App() {
       calibration.hydrateScale(nextData.scale ?? null);
       wallDrawing.hydrateWalls(nextData.walls);
       windowMarking.hydrateWindows(nextData.windows ?? []);
+      setFurniture(nextData.furniture ?? []);
+      setSelectedFurnitureId(null);
       setIsDistanceDialogOpen(false);
     },
     [calibration, wallDrawing, windowMarking],
@@ -134,12 +167,15 @@ export default function App() {
     calibration.resetCalibration();
     wallDrawing.resetWalls();
     windowMarking.resetWindows();
+    setFurniture([]);
+    setSelectedFurnitureId(null);
     setFloorplanData((previous) => ({
       ...previous,
       scale: undefined,
       walls: [],
       polygons: [],
       windows: [],
+      furniture: [],
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
@@ -153,16 +189,62 @@ export default function App() {
       walls: wallDrawing.walls,
       polygons: wallDrawing.polygons,
       windows: windowMarking.windows,
+      furniture,
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
       },
     }));
-  }, [wallDrawing.walls, wallDrawing.polygons, windowMarking.windows]);
+  }, [furniture, wallDrawing.walls, wallDrawing.polygons, windowMarking.windows]);
+
+  const addFurniture = (catalogId: FurnitureCatalogId) => {
+    const catalogItem = getFurnitureCatalogItem(catalogId);
+    if (!catalogItem) return;
+    const position = getDefaultFurniturePosition(floorplanData);
+    const created: FurnitureItem = {
+      id: createFurnitureId(),
+      catalogId,
+      position,
+      rotationDeg: 0,
+      width: catalogItem.footprint.width,
+      depth: catalogItem.footprint.depth,
+    };
+    setFurniture((previous) => [...previous, created]);
+    setSelectedFurnitureId(created.id);
+    wallDrawing.selectWall(null);
+    windowMarking.selectWindow(null);
+  };
+
+  const moveFurniture = (id: string, position: Point2D) => {
+    setFurniture((previous) =>
+      previous.map((item) => (item.id === id ? { ...item, position } : item)),
+    );
+  };
+
+  const rotateSelectedFurniture = (deltaDeg: number) => {
+    if (!selectedFurnitureId) return;
+    setFurniture((previous) =>
+      previous.map((item) =>
+        item.id === selectedFurnitureId
+          ? { ...item, rotationDeg: normalizeRotation(item.rotationDeg + deltaDeg) }
+          : item,
+      ),
+    );
+  };
+
+  const deleteSelectedFurniture = () => {
+    if (!selectedFurnitureId) return;
+    setFurniture((previous) => previous.filter((item) => item.id !== selectedFurnitureId));
+    setSelectedFurnitureId(null);
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Delete") {
+        if (selectedFurnitureId) {
+          deleteSelectedFurniture();
+          return;
+        }
         if (windowMarking.selectedWindowId) {
           windowMarking.deleteWindow(windowMarking.selectedWindowId);
           return;
@@ -180,9 +262,11 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    deleteSelectedFurniture,
     wallDrawing.cancelCurrentWall,
     wallDrawing.deleteWall,
     wallDrawing.selectedWallId,
+    selectedFurnitureId,
     windowMarking.cancelDraft,
     windowMarking.deleteWindow,
     windowMarking.selectedWindowId,
@@ -246,6 +330,7 @@ export default function App() {
               { key: "upload", icon: "upload_file", label: "上傳" },
               { key: "calibrate", icon: "straighten", label: "校正" },
               { key: "wall", icon: "edit", label: "牆線" },
+              { key: "furniture", icon: "bed", label: "家具" },
               { key: "layers", icon: "layers", label: "圖層" },
               { key: "settings", icon: "settings", label: "設定" },
             ].map((item) => (
@@ -282,14 +367,30 @@ export default function App() {
                 onBeginWall={wallDrawing.beginWall}
                 onUpdateCurrentWall={wallDrawing.updateCurrentWall}
                 onCompleteCurrentWall={wallDrawing.completeCurrentWall}
-                onSelectWall={wallDrawing.selectWall}
+                onSelectWall={(id) => {
+                  wallDrawing.selectWall(id);
+                  if (id) setSelectedFurnitureId(null);
+                }}
                 onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
                 isWindowMode={windowMarking.isWindowMode}
                 windows={windowMarking.windows}
                 selectedWindowId={windowMarking.selectedWindowId}
                 selectedWindowType={windowMarking.selectedType}
                 onAddWindowByOffsets={windowMarking.addWindowByOffsets}
-                onSelectWindow={windowMarking.selectWindow}
+                onSelectWindow={(id) => {
+                  windowMarking.selectWindow(id);
+                  if (id) setSelectedFurnitureId(null);
+                }}
+                furniture={furniture}
+                selectedFurnitureId={selectedFurnitureId}
+                onSelectFurniture={(id) => {
+                  setSelectedFurnitureId(id);
+                  if (id) {
+                    wallDrawing.selectWall(null);
+                    windowMarking.selectWindow(null);
+                  }
+                }}
+                onMoveFurniture={moveFurniture}
                 onCanvasStatusChange={setCanvasStatus}
               />
             </div>
@@ -319,6 +420,8 @@ export default function App() {
                     calibration.resetCalibration();
                     wallDrawing.resetWalls();
                     windowMarking.resetWindows();
+                    setFurniture([]);
+                    setSelectedFurnitureId(null);
                     setUploadedImage(null);
                     setIsDistanceDialogOpen(false);
                     setFloorplanData(createInitialData());
@@ -401,6 +504,17 @@ export default function App() {
               />
             )}
 
+            {activeTool === "furniture" && (
+              <FurniturePanel
+                canPlace={Boolean(uploadedImage && calibration.scale)}
+                furnitureCount={furniture.length}
+                selectedFurnitureId={selectedFurnitureId}
+                onAddFurniture={addFurniture}
+                onRotateSelected={rotateSelectedFurniture}
+                onDeleteSelected={deleteSelectedFurniture}
+              />
+            )}
+
             {(activeTool === "layers" || activeTool === "settings") && (
               <section className="panel">
                 <h2 className="text-base font-bold">資料狀態</h2>
@@ -419,6 +533,7 @@ export default function App() {
                       walls: floorplanData.walls,
                       polygons: floorplanData.polygons,
                       windows: floorplanData.windows,
+                      furniture: floorplanData.furniture,
                     },
                     null,
                     2,
