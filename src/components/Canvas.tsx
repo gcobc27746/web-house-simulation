@@ -603,7 +603,7 @@ export function Canvas({
                 scaleY={transform.scale}
                 draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
                 onDragEnd={(evt) => {
-                  if (evt.target.getAttr("name") !== "canvas-group") return;
+                  if (evt.target.name() !== "canvas-group") return;
                   setTransform((previous) => ({
                     ...previous,
                     x: evt.target.x(),
