@@ -596,12 +596,14 @@ export function Canvas({
           <Layer>
             {image && (
               <Group
+                name="canvas-group"
                 x={transform.x}
                 y={transform.y}
                 scaleX={transform.scale}
                 scaleY={transform.scale}
                 draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
                 onDragEnd={(evt) => {
+                  if (evt.target.getAttr("name") !== "canvas-group") return;
                   setTransform((previous) => ({
                     ...previous,
                     x: evt.target.x(),
@@ -627,6 +629,7 @@ export function Canvas({
                     <Group key={wall.id}>
                       <Line
                         name="wall-line"
+                        listening={!isDrawingMode}
                         points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
                         stroke={isSelected ? "#ff8a00" : "#3273dc"}
                         strokeWidth={isSelected ? invariantSelectedStrokeWidth : invariantStrokeWidth}
@@ -645,11 +648,12 @@ export function Canvas({
                       />
                       <Circle
                         name="wall-endpoint"
+                        listening={!isDrawingMode}
                         x={wall.start.x}
                         y={wall.start.y}
                         radius={invariantEndpointRadius}
                         fill={isSelected ? "#ff8a00" : "#3273dc"}
-                        draggable={isDrawingMode && !isWindowMode}
+                        draggable={!isDrawingMode && !isWindowMode}
                         onDragStart={(event) => {
                           event.cancelBubble = true;
                           onSelectWall(wall.id);
@@ -669,11 +673,12 @@ export function Canvas({
                       />
                       <Circle
                         name="wall-endpoint"
+                        listening={!isDrawingMode}
                         x={wall.end.x}
                         y={wall.end.y}
                         radius={invariantEndpointRadius}
                         fill={isSelected ? "#ff8a00" : "#3273dc"}
-                        draggable={isDrawingMode && !isWindowMode}
+                        draggable={!isDrawingMode && !isWindowMode}
                         onDragStart={(event) => {
                           event.cancelBubble = true;
                           onSelectWall(wall.id);
