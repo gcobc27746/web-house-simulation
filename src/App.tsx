@@ -704,18 +704,18 @@ export default function App() {
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-background-dark text-slate-100">
-      <header className="z-40 flex items-center justify-between border-b border-border-dark bg-surface-darker px-6 py-3">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
-              <span className="material-symbols-outlined">architecture</span>
-            </div>
-            <div>
-              <h1 className="text-base font-bold">SpatialPlanner</h1>
-              <p className="text-xs text-slate-400">Project: Floorplan Simulation</p>
-            </div>
+      <header className="relative z-40 flex items-center justify-between border-b border-border-dark bg-surface-darker px-6 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
+            <span className="material-symbols-outlined">architecture</span>
           </div>
-          <div className="hidden rounded-lg border border-border-dark bg-surface-dark p-1 md:flex">
+          <div>
+            <h1 className="text-base font-bold">SpatialPlanner</h1>
+            <p className="text-xs text-slate-400">Project: Floorplan Simulation</p>
+          </div>
+        </div>
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div className="pointer-events-auto rounded-lg border border-border-dark bg-surface-dark p-1">
             <button
               type="button"
               className={`rounded px-4 py-1.5 text-sm font-medium transition ${
@@ -741,14 +741,6 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
-            onClick={() => setActiveView(activeView === "design" ? "viewer" : "design")}
-          >
-            <span className="material-symbols-outlined text-base">swap_horiz</span>
-            {activeView === "design" ? "前往 3D" : "回到 2D"}
-          </button>
           <button
             type="button"
             className="rounded-lg border border-border-dark px-3 py-2 text-sm text-slate-200 transition hover:border-primary hover:text-white"
@@ -849,7 +841,7 @@ export default function App() {
 
             {activeTool === "upload" && (
               <section
-                className={`absolute left-5 top-16 z-30 w-[340px] rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
+                className={`absolute left-1/2 top-20 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
                   isImageDragging ? "border-primary" : ""
                 }`}
                 onDrop={onImageDrop}
@@ -882,14 +874,24 @@ export default function App() {
 
             {activeTool === "furniture" && isFurnitureDrawerOpen && (
               <aside className="absolute bottom-12 right-4 top-16 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
-                <FurniturePanel
-                  canPlace={Boolean(uploadedImage && calibration.scale)}
-                  furnitureCount={furniture.length}
-                  selectedFurnitureId={selectedFurnitureId}
-                  onAddFurniture={addFurniture}
-                  onRotateSelected={rotateSelectedFurniture}
-                  onDeleteSelected={deleteSelectedFurniture}
-                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-3 z-10 rounded-md border border-border-dark bg-surface-dark/90 p-1 text-slate-300 transition hover:border-primary hover:text-white"
+                  title="關閉家具視窗"
+                  onClick={() => setIsFurnitureDrawerOpen(false)}
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <div className="pr-8">
+                  <FurniturePanel
+                    canPlace={Boolean(uploadedImage && calibration.scale)}
+                    furnitureCount={furniture.length}
+                    selectedFurnitureId={selectedFurnitureId}
+                    onAddFurniture={addFurniture}
+                    onRotateSelected={rotateSelectedFurniture}
+                    onDeleteSelected={deleteSelectedFurniture}
+                  />
+                </div>
               </aside>
             )}
 
