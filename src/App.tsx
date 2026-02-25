@@ -839,7 +839,7 @@ export default function App() {
               <span className="font-mono">{canvasStatus.zoomPercent}%</span>
             </div>
 
-            {activeTool === "upload" && (
+            {activeTool === "upload" && !uploadedImage && (
               <section
                 className={`absolute left-1/2 top-20 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
                   isImageDragging ? "border-primary" : ""
@@ -874,24 +874,15 @@ export default function App() {
 
             {activeTool === "furniture" && isFurnitureDrawerOpen && (
               <aside className="absolute bottom-12 right-4 top-16 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
-                <button
-                  type="button"
-                  className="absolute right-3 top-3 z-10 rounded-md border border-border-dark bg-surface-dark/90 p-1 text-slate-300 transition hover:border-primary hover:text-white"
-                  title="關閉家具視窗"
-                  onClick={() => setIsFurnitureDrawerOpen(false)}
-                >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
-                </button>
-                <div className="pr-8">
-                  <FurniturePanel
-                    canPlace={Boolean(uploadedImage && calibration.scale)}
-                    furnitureCount={furniture.length}
-                    selectedFurnitureId={selectedFurnitureId}
-                    onAddFurniture={addFurniture}
-                    onRotateSelected={rotateSelectedFurniture}
-                    onDeleteSelected={deleteSelectedFurniture}
-                  />
-                </div>
+                <FurniturePanel
+                  canPlace={Boolean(uploadedImage && calibration.scale)}
+                  furnitureCount={furniture.length}
+                  selectedFurnitureId={selectedFurnitureId}
+                  onClose={() => setIsFurnitureDrawerOpen(false)}
+                  onAddFurniture={addFurniture}
+                  onRotateSelected={rotateSelectedFurniture}
+                  onDeleteSelected={deleteSelectedFurniture}
+                />
               </aside>
             )}
 

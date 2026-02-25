@@ -6,6 +6,7 @@ interface FurniturePanelProps {
   canPlace: boolean;
   furnitureCount: number;
   selectedFurnitureId: string | null;
+  onClose?: () => void;
   onAddFurniture: (catalogId: FurnitureCatalogId) => void;
   onRotateSelected: (deltaDeg: number) => void;
   onDeleteSelected: () => void;
@@ -15,6 +16,7 @@ export function FurniturePanel({
   canPlace,
   furnitureCount,
   selectedFurnitureId,
+  onClose,
   onAddFurniture,
   onRotateSelected,
   onDeleteSelected,
@@ -42,7 +44,19 @@ export function FurniturePanel({
 
   return (
     <section className="panel">
-      <h2>家具放置</h2>
+      <div className="flex items-start justify-between gap-2">
+        <h2>家具放置</h2>
+        {onClose && (
+          <button
+            type="button"
+            className="rounded-md border border-border-dark bg-surface-dark px-1.5 py-1 text-slate-300 transition hover:border-primary hover:text-white"
+            title="關閉家具視窗"
+            onClick={onClose}
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        )}
+      </div>
       <p className="calibration-status">搜尋家具並加入畫布，2D/3D 會同步。</p>
 
       <div className="mb-3">
