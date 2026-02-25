@@ -17,6 +17,14 @@ import { alignWithShift, findSnapPoint } from "../utils/snapHelper";
 
 interface CanvasProps {
   image: HTMLImageElement | null;
+  layerVisibility?: {
+    image: boolean;
+    walls: boolean;
+    windows: boolean;
+    furniture: boolean;
+  };
+  enableSnapping?: boolean;
+  showHintBar?: boolean;
   isCalibrationMode: boolean;
   measurementPoints: Point2D[];
   scale: FloorplanScale | null;
@@ -64,6 +72,14 @@ const clamp = (value: number, min: number, max: number) =>
 
 export function Canvas({
   image,
+  layerVisibility = {
+    image: true,
+    walls: true,
+    windows: true,
+    furniture: true,
+  },
+  enableSnapping = true,
+  showHintBar = true,
   isCalibrationMode,
   measurementPoints,
   scale,
@@ -426,7 +442,7 @@ export function Canvas({
     if (shiftPressed && previewWallPixels) {
       nextPoint = alignWithShift(previewWallPixels.start, nextPoint);
     }
-    if (!disableSnap) {
+    if (enableSnapping && !disableSnap) {
       const snapped = findSnapPoint(nextPoint, pixelWalls, 10);
       if (snapped) {
         // 連續繪製時，避免吸附回當前段落起點造成「看似最小距離限制」
@@ -611,8 +627,9 @@ export function Canvas({
                   }));
                 }}
               >
-                <KonvaImage image={image} />
-                {pixelPolygons.map((polygon) => (
+                {layerVisibility.image && <KonvaImage image={image} />}
+                {layerVisibility.walls &&
+                  pixelPolygons.map((polygon) => (
                   <Line
                     key={polygon.id}
                     points={polygon.vertices.flatMap((vertex) => [vertex.x, vertex.y])}
@@ -623,83 +640,85 @@ export function Canvas({
                     listening={false}
                   />
                 ))}
-                {pixelWalls.map((wall) => {
-                  const isSelected = selectedWallId === wall.id;
-                  return (
-                    <Group key={wall.id}>
-                      <Line
-                        name="wall-line"
-                        listening={!isDrawingMode}
-                        points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                        stroke={isSelected ? "#ff8a00" : "#3273dc"}
-                        strokeWidth={isSelected ? invariantSelectedStrokeWidth : invariantStrokeWidth}
-                        strokeScaleEnabled={false}
-                        hitStrokeWidth={14 / transform.scale}
-                        onMouseDown={(event) => {
-                          event.cancelBubble = true;
-                          onSelectWall(wall.id);
-                          onSelectWindow(null);
-                        }}
-                        onClick={(event) => {
-                          event.cancelBubble = true;
-                          onSelectWall(wall.id);
-                          onSelectWindow(null);
-                        }}
-                      />
-                      <Circle
-                        name="wall-endpoint"
-                        listening={!isDrawingMode}
-                        x={wall.start.x}
-                        y={wall.start.y}
-                        radius={invariantEndpointRadius}
-                        fill={isSelected ? "#ff8a00" : "#3273dc"}
-                        draggable={!isDrawingMode && !isWindowMode}
-                        onDragStart={(event) => {
-                          event.cancelBubble = true;
-                          onSelectWall(wall.id);
-                        }}
-                        onDragEnd={(event) => {
-                          if (!scale) return;
-                          const position = clampToImageBounds({
-                            x: event.target.x(),
-                            y: event.target.y(),
-                          });
-                          onMoveWallEndpoint(
-                            wall.id,
-                            "start",
-                            pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
-                          );
-                        }}
-                      />
-                      <Circle
-                        name="wall-endpoint"
-                        listening={!isDrawingMode}
-                        x={wall.end.x}
-                        y={wall.end.y}
-                        radius={invariantEndpointRadius}
-                        fill={isSelected ? "#ff8a00" : "#3273dc"}
-                        draggable={!isDrawingMode && !isWindowMode}
-                        onDragStart={(event) => {
-                          event.cancelBubble = true;
-                          onSelectWall(wall.id);
-                        }}
-                        onDragEnd={(event) => {
-                          if (!scale) return;
-                          const position = clampToImageBounds({
-                            x: event.target.x(),
-                            y: event.target.y(),
-                          });
-                          onMoveWallEndpoint(
-                            wall.id,
-                            "end",
-                            pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
-                          );
-                        }}
-                      />
-                    </Group>
-                  );
-                })}
-                {windowSegments.map((segment) => (
+                {layerVisibility.walls &&
+                  pixelWalls.map((wall) => {
+                    const isSelected = selectedWallId === wall.id;
+                    return (
+                      <Group key={wall.id}>
+                        <Line
+                          name="wall-line"
+                          listening={!isDrawingMode}
+                          points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
+                          stroke={isSelected ? "#ff8a00" : "#3273dc"}
+                          strokeWidth={isSelected ? invariantSelectedStrokeWidth : invariantStrokeWidth}
+                          strokeScaleEnabled={false}
+                          hitStrokeWidth={14 / transform.scale}
+                          onMouseDown={(event) => {
+                            event.cancelBubble = true;
+                            onSelectWall(wall.id);
+                            onSelectWindow(null);
+                          }}
+                          onClick={(event) => {
+                            event.cancelBubble = true;
+                            onSelectWall(wall.id);
+                            onSelectWindow(null);
+                          }}
+                        />
+                        <Circle
+                          name="wall-endpoint"
+                          listening={!isDrawingMode}
+                          x={wall.start.x}
+                          y={wall.start.y}
+                          radius={invariantEndpointRadius}
+                          fill={isSelected ? "#ff8a00" : "#3273dc"}
+                          draggable={!isDrawingMode && !isWindowMode}
+                          onDragStart={(event) => {
+                            event.cancelBubble = true;
+                            onSelectWall(wall.id);
+                          }}
+                          onDragEnd={(event) => {
+                            if (!scale) return;
+                            const position = clampToImageBounds({
+                              x: event.target.x(),
+                              y: event.target.y(),
+                            });
+                            onMoveWallEndpoint(
+                              wall.id,
+                              "start",
+                              pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
+                            );
+                          }}
+                        />
+                        <Circle
+                          name="wall-endpoint"
+                          listening={!isDrawingMode}
+                          x={wall.end.x}
+                          y={wall.end.y}
+                          radius={invariantEndpointRadius}
+                          fill={isSelected ? "#ff8a00" : "#3273dc"}
+                          draggable={!isDrawingMode && !isWindowMode}
+                          onDragStart={(event) => {
+                            event.cancelBubble = true;
+                            onSelectWall(wall.id);
+                          }}
+                          onDragEnd={(event) => {
+                            if (!scale) return;
+                            const position = clampToImageBounds({
+                              x: event.target.x(),
+                              y: event.target.y(),
+                            });
+                            onMoveWallEndpoint(
+                              wall.id,
+                              "end",
+                              pixelToMeter(position.x, position.y, scale.pixelsPerMeter),
+                            );
+                          }}
+                        />
+                      </Group>
+                    );
+                  })}
+                {layerVisibility.windows &&
+                  windowSegments.map((segment) => (
                   <Line
                     key={segment.id}
                     name="window-line"
@@ -718,7 +737,8 @@ export function Canvas({
                     }}
                   />
                 ))}
-                {pixelFurniture.map((item) => (
+                {layerVisibility.furniture &&
+                  pixelFurniture.map((item) => (
                   <Group
                     key={item.id}
                     x={item.center.x}
@@ -843,19 +863,21 @@ export function Canvas({
           </Layer>
         </Stage>
       </div>
-      <div className="canvas-hint">
-        {hasImage
-          ? isCalibrationMode
-            ? "校正模式中：請在圖片內點擊兩個量測點。"
-            : isWindowMode
-              ? "窗戶模式中：拖曳框選範圍，若框到牆段會自動截取成窗戶。"
-            : isDrawingMode
-              ? isTabPanning
-                ? "Tab 暫時拖曳模式：可拖曳底圖，放開 Tab 回到繪製。"
-                : "繪製模式中：點擊起點與終點建立牆段，可拖曳端點調整。按住 Tab 可暫時拖曳底圖，按住 Alt 可暫時取消吸附。"
-              : "Ctrl+滾輪可縮放，滾輪可上下拖曳，Shift+滾輪可左右拖曳。"
-          : "請先上傳圖片。"}
-      </div>
+      {showHintBar && (
+        <div className="canvas-hint">
+          {hasImage
+            ? isCalibrationMode
+              ? "校正模式中：請在圖片內點擊兩個量測點。"
+              : isWindowMode
+                ? "窗戶模式中：拖曳框選範圍，若框到牆段會自動截取成窗戶。"
+                : isDrawingMode
+                  ? isTabPanning
+                    ? "Tab 暫時拖曳模式：可拖曳底圖，放開 Tab 回到繪製。"
+                    : "繪製模式中：點擊起點與終點建立牆段，可拖曳端點調整。按住 Tab 可暫時拖曳底圖，按住 Alt 可暫時取消吸附。"
+                  : "Ctrl+滾輪可縮放，滾輪可上下拖曳，Shift+滾輪可左右拖曳。"
+            : "請先上傳圖片。"}
+        </div>
+      )}
     </section>
   );
 }
