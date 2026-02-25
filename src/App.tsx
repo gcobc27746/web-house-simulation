@@ -44,6 +44,11 @@ const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string }> = [
   { type: "balcony", label: "陽台窗" },
 ];
 
+const WALL_DRAW_MODE_OPTIONS = [
+  { key: "continuous", label: "連續牆體", icon: "polyline", continuous: true },
+  { key: "single", label: "單段式牆體", icon: "horizontal_rule", continuous: false },
+] as const;
+
 const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
   image: true,
   walls: true,
@@ -95,6 +100,7 @@ const getDefaultFurniturePosition = (data: FloorplanData): Point2D => {
 export default function App() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const jsonImportInputRef = useRef<HTMLInputElement>(null);
+  const toolSidebarRef = useRef<HTMLElement>(null);
 
   const [floorplanData, setFloorplanData] = useState<FloorplanData>(
     createInitialData,
@@ -112,6 +118,7 @@ export default function App() {
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const [activeView, setActiveView] = useState<ViewMode>("design");
   const [activeTool, setActiveTool] = useState<ToolMode>("upload");
+  const [openToolVariantMenu, setOpenToolVariantMenu] = useState<ToolMode | null>(null);
   const [isFurnitureDrawerOpen, setIsFurnitureDrawerOpen] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
   const [showCanvasHint, setShowCanvasHint] = useState(true);
@@ -290,6 +297,23 @@ export default function App() {
   }, [activeTool]);
 
   useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (toolSidebarRef.current?.contains(target)) return;
+      setOpenToolVariantMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (activeView !== "design") {
+      setOpenToolVariantMenu(null);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
     setFloorplanData((previous) => ({
       ...previous,
       walls: wallDrawing.walls,
@@ -405,6 +429,11 @@ export default function App() {
     setLayerVisibility((previous) => ({ ...previous, [key]: !previous[key] }));
   };
 
+  const activeWindowTypeLabel =
+    WINDOW_TYPE_OPTIONS.find((option) => option.type === windowMarking.selectedType)?.label ?? "一般窗";
+
+  const activeWallDrawModeLabel = wallDrawing.isContinuousMode ? "連續牆體" : "單段式牆體";
+
   const contextToolbar = (() => {
     if (activeTool === "upload") {
       return (
@@ -490,15 +519,10 @@ export default function App() {
           >
             {wallDrawing.isDrawingMode ? "停止繪製" : "開始繪製"}
           </button>
-          <label className="flex items-center gap-2 text-xs text-slate-200">
-            <input
-              type="checkbox"
-              checked={wallDrawing.isContinuousMode}
-              onChange={(event) => wallDrawing.setContinuousMode(event.target.checked)}
-              disabled={!uploadedImage || !calibration.scale}
-            />
-            連續繪製
-          </label>
+          <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+            模式：{activeWallDrawModeLabel}
+          </span>
+          <span className="text-xs text-slate-400">可由左側牆體工具子選單切換</span>
           <div className="h-5 w-px bg-white/10" />
           <button
             type="button"
@@ -556,23 +580,10 @@ export default function App() {
           >
             {windowMarking.isWindowMode ? "停止窗戶模式" : "開始窗戶模式"}
           </button>
-          <div className="flex flex-wrap items-center gap-2">
-            {WINDOW_TYPE_OPTIONS.map((option) => (
-              <button
-                key={option.type}
-                type="button"
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  windowMarking.selectedType === option.type
-                    ? "border-primary bg-primary/20 text-primary"
-                    : "border-border-dark text-slate-300 hover:border-primary hover:text-white"
-                }`}
-                onClick={() => windowMarking.setWindowType(option.type)}
-                disabled={!uploadedImage || !calibration.scale}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+            窗型：{activeWindowTypeLabel}
+          </span>
+          <span className="text-xs text-slate-400">可由左側窗戶工具子選單切換</span>
           <button
             type="button"
             className="rounded-lg border border-rose-500/30 px-2 py-1.5 text-xs text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-40"
@@ -760,22 +771,104 @@ export default function App() {
 
       {activeView === "design" ? (
         <div className="flex min-h-0 flex-1">
-          <aside className="flex w-[76px] flex-col items-center border-r border-border-dark bg-surface-darker py-3">
-            {TOOL_ITEMS.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                title={item.label}
-                className={`mb-1 flex h-12 w-12 items-center justify-center rounded-xl transition ${
-                  activeTool === item.key
-                    ? "bg-primary text-white shadow-lg shadow-primary/30"
-                    : "text-slate-400 hover:bg-surface-dark hover:text-white"
-                }`}
-                onClick={() => setActiveTool(item.key)}
-              >
-                <span className="material-symbols-outlined">{item.icon}</span>
-              </button>
-            ))}
+          <aside
+            ref={toolSidebarRef}
+            className="flex w-[76px] flex-col items-center border-r border-border-dark bg-surface-darker py-3"
+          >
+            {TOOL_ITEMS.map((item) => {
+              const hasVariants = item.key === "wall" || item.key === "window";
+              const isActive = activeTool === item.key;
+
+              return (
+                <div key={item.key} className="relative mb-1">
+                  <button
+                    type="button"
+                    title={item.label}
+                    className={`relative flex h-12 w-12 items-center justify-center rounded-xl transition ${
+                      isActive
+                        ? "bg-primary text-white shadow-lg shadow-primary/30"
+                        : "text-slate-400 hover:bg-surface-dark hover:text-white"
+                    }`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setActiveTool(item.key);
+                      if (hasVariants) {
+                        setOpenToolVariantMenu((previous) =>
+                          previous === item.key ? null : item.key,
+                        );
+                      } else {
+                        setOpenToolVariantMenu(null);
+                      }
+                    }}
+                  >
+                    <span className="material-symbols-outlined">{item.icon}</span>
+                    {hasVariants && (
+                      <span
+                        className={`pointer-events-none absolute bottom-1 right-1 h-0 w-0 border-b-[7px] border-l-[7px] border-b-current border-l-transparent ${
+                          isActive ? "text-white" : "text-slate-500"
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  {item.key === "wall" && openToolVariantMenu === "wall" && (
+                    <div className="absolute left-14 top-0 z-50 flex min-w-[210px] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-panel">
+                      {WALL_DRAW_MODE_OPTIONS.map((option) => {
+                        const selected = wallDrawing.isContinuousMode === option.continuous;
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            className={`flex items-center gap-3 px-3 py-2 text-left text-xs transition ${
+                              selected
+                                ? "bg-primary text-white"
+                                : "text-slate-200 hover:bg-white/10"
+                            }`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActiveTool("wall");
+                              wallDrawing.setContinuousMode(option.continuous);
+                              setOpenToolVariantMenu(null);
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-[18px]">{option.icon}</span>
+                            <span className="flex-1">{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {item.key === "window" && openToolVariantMenu === "window" && (
+                    <div className="absolute left-14 top-0 z-50 flex min-w-[210px] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-panel">
+                      {WINDOW_TYPE_OPTIONS.map((option) => {
+                        const selected = windowMarking.selectedType === option.type;
+                        return (
+                          <button
+                            key={option.type}
+                            type="button"
+                            className={`flex items-center gap-3 px-3 py-2 text-left text-xs transition ${
+                              selected
+                                ? "bg-primary text-white"
+                                : "text-slate-200 hover:bg-white/10"
+                            }`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActiveTool("window");
+                              windowMarking.setWindowType(option.type);
+                              setOpenToolVariantMenu(null);
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-[18px]">window</span>
+                            <span className="flex-1">{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </aside>
 
           <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#0d1218]">
