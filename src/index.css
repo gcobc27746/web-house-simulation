@@ -143,6 +143,42 @@
     transform: translateY(-50%);
   }
 
+  .dialog-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm;
+  }
+
+  .dialog-card {
+    @apply w-full max-w-md rounded-2xl border border-border-dark bg-surface-dark p-6 shadow-panel;
+  }
+
+  .dialog-card h3 {
+    @apply text-lg font-bold text-slate-100;
+  }
+
+  .dialog-card p {
+    @apply mt-1 text-sm text-slate-300;
+  }
+
+  .dialog-hint {
+    @apply mt-2 text-xs text-slate-400;
+  }
+
+  .dialog-form {
+    @apply mt-4 flex flex-col gap-3;
+  }
+
+  .dialog-form label {
+    @apply text-sm font-medium text-slate-200;
+  }
+
+  .dialog-form input[type="number"] {
+    @apply w-full rounded-lg border border-border-dark bg-background-dark px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/40;
+  }
+
+  .dialog-actions {
+    @apply flex items-center justify-end gap-3 pt-2;
+  }
+
   .geometry-errors ul {
     margin: 8px 0 0;
     padding-left: 20px;
