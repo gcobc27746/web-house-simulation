@@ -83,6 +83,14 @@ export function useFloorplanStorage(
     return () => window.clearTimeout(timeoutId);
   }, [data]);
 
+  useEffect(() => {
+    if (!status) return;
+    const timeoutId = window.setTimeout(() => {
+      setStatus(null);
+    }, 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [status]);
+
   const exportJSON = useCallback(() => {
     try {
       const exportData = withUpdatedAt(data);

@@ -17,9 +17,26 @@ import type {
   WindowType,
 } from "./types/floorplan";
 
+const CONTINUOUS_WALL_ICON = new URL("../resources/icons/continuous-wall.svg", import.meta.url).href;
+const SINGLE_SECTION_WALL_ICON = new URL(
+  "../resources/icons/single-section-wall.svg",
+  import.meta.url,
+).href;
+const WINDOW_NORMAL_ICON = new URL("../resources/icons/window.svg", import.meta.url).href;
+const WINDOW_FLOOR_ICON = new URL(
+  "../resources/icons/floor-to-ceiling-window.svg",
+  import.meta.url,
+).href;
+const WINDOW_TRANSOM_ICON = new URL("../resources/icons/transom.svg", import.meta.url).href;
+const WINDOW_BALCONY_ICON = new URL("../resources/icons/balcony.svg", import.meta.url).href;
+
 const nowIso = () => new Date().toISOString();
 type ViewMode = "design" | "viewer";
-type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture" | "layers" | "settings";
+type TopMenu = "file" | "edit" | "view";
+type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture";
+type ToolIcon =
+  | { kind: "material"; name: string }
+  | { kind: "svg"; src: string };
 type LayerVisibilityState = {
   image: boolean;
   walls: boolean;
@@ -27,26 +44,34 @@ type LayerVisibilityState = {
   furniture: boolean;
 };
 
-const TOOL_ITEMS: Array<{ key: ToolMode; icon: string; label: string }> = [
-  { key: "upload", icon: "add_photo_alternate", label: "上傳" },
-  { key: "calibrate", icon: "straighten", label: "校正" },
-  { key: "wall", icon: "polyline", label: "牆線" },
-  { key: "window", icon: "window", label: "窗戶" },
-  { key: "furniture", icon: "chair", label: "家具" },
-  { key: "layers", icon: "layers", label: "圖層" },
-  { key: "settings", icon: "settings", label: "設定" },
+const TOOL_ITEMS: Array<{ key: ToolMode; label: string }> = [
+  { key: "upload", label: "上傳" },
+  { key: "calibrate", label: "校正" },
+  { key: "wall", label: "牆線" },
+  { key: "window", label: "窗戶" },
+  { key: "furniture", label: "家具" },
 ];
 
-const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string }> = [
-  { type: "floor", label: "落地窗" },
-  { type: "normal", label: "一般窗" },
-  { type: "high", label: "氣窗" },
-  { type: "balcony", label: "陽台窗" },
+const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string; iconSrc: string }> = [
+  { type: "floor", label: "落地窗", iconSrc: WINDOW_FLOOR_ICON },
+  { type: "normal", label: "一般窗", iconSrc: WINDOW_NORMAL_ICON },
+  { type: "high", label: "氣窗", iconSrc: WINDOW_TRANSOM_ICON },
+  { type: "balcony", label: "陽台窗", iconSrc: WINDOW_BALCONY_ICON },
 ];
 
 const WALL_DRAW_MODE_OPTIONS = [
-  { key: "continuous", label: "連續牆體", icon: "polyline", continuous: true },
-  { key: "single", label: "單段式牆體", icon: "horizontal_rule", continuous: false },
+  {
+    key: "continuous",
+    label: "連續牆體",
+    iconSrc: CONTINUOUS_WALL_ICON,
+    continuous: true,
+  },
+  {
+    key: "single",
+    label: "單段式牆體",
+    iconSrc: SINGLE_SECTION_WALL_ICON,
+    continuous: false,
+  },
 ] as const;
 
 const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
@@ -55,6 +80,18 @@ const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
   windows: true,
   furniture: true,
 };
+
+function SvgIconImage({ src, className }: { src: string; className: string }) {
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      draggable={false}
+      className={`inline-block shrink-0 select-none svg-icon-invert ${className}`}
+    />
+  );
+}
 
 function createInitialData(): FloorplanData {
   const createdAt = nowIso();
@@ -101,6 +138,7 @@ export default function App() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const jsonImportInputRef = useRef<HTMLInputElement>(null);
   const toolSidebarRef = useRef<HTMLElement>(null);
+  const topMenuRef = useRef<HTMLElement>(null);
 
   const [floorplanData, setFloorplanData] = useState<FloorplanData>(
     createInitialData,
@@ -118,7 +156,8 @@ export default function App() {
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const [activeView, setActiveView] = useState<ViewMode>("design");
   const [activeTool, setActiveTool] = useState<ToolMode>("upload");
-  const [openToolVariantMenu, setOpenToolVariantMenu] = useState<ToolMode | null>(null);
+  const [openTopMenu, setOpenTopMenu] = useState<TopMenu | null>(null);
+  const [openToolVariantMenu, setOpenToolVariantMenu] = useState<"wall" | "window" | null>(null);
   const [isFurnitureDrawerOpen, setIsFurnitureDrawerOpen] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
   const [showCanvasHint, setShowCanvasHint] = useState(true);
@@ -291,23 +330,22 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTool === "furniture") {
-      setIsFurnitureDrawerOpen(true);
-    }
-  }, [activeTool]);
-
-  useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (toolSidebarRef.current?.contains(target)) return;
-      setOpenToolVariantMenu(null);
+      if (!toolSidebarRef.current?.contains(target)) {
+        setOpenToolVariantMenu(null);
+      }
+      if (!topMenuRef.current?.contains(target)) {
+        setOpenTopMenu(null);
+      }
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
   useEffect(() => {
+    setOpenTopMenu(null);
     if (activeView !== "design") {
       setOpenToolVariantMenu(null);
     }
@@ -429,10 +467,50 @@ export default function App() {
     setLayerVisibility((previous) => ({ ...previous, [key]: !previous[key] }));
   };
 
-  const activeWindowTypeLabel =
-    WINDOW_TYPE_OPTIONS.find((option) => option.type === windowMarking.selectedType)?.label ?? "一般窗";
+  const activeWindowOption =
+    WINDOW_TYPE_OPTIONS.find((option) => option.type === windowMarking.selectedType) ??
+    WINDOW_TYPE_OPTIONS[1];
+  const activeWindowTypeLabel = activeWindowOption.label;
 
-  const activeWallDrawModeLabel = wallDrawing.isContinuousMode ? "連續牆體" : "單段式牆體";
+  const activeWallOption =
+    WALL_DRAW_MODE_OPTIONS.find((option) => option.continuous === wallDrawing.isContinuousMode) ??
+    WALL_DRAW_MODE_OPTIONS[0];
+  const activeWallDrawModeLabel = activeWallOption.label;
+
+  const layerLabelMap: Record<keyof LayerVisibilityState, string> = {
+    image: "底圖",
+    walls: "牆線",
+    windows: "窗戶",
+    furniture: "家具",
+  };
+
+  const sidebarToolIcons: Record<ToolMode, ToolIcon> = {
+    upload: { kind: "material", name: "add_photo_alternate" },
+    calibrate: { kind: "material", name: "straighten" },
+    wall: { kind: "svg", src: activeWallOption.iconSrc },
+    window: { kind: "svg", src: activeWindowOption.iconSrc },
+    furniture: { kind: "material", name: "chair" },
+  };
+
+  const handleToolButtonClick = (tool: ToolMode) => {
+    setOpenToolVariantMenu(null);
+    setActiveTool(tool);
+    if (tool === "furniture") {
+      setIsFurnitureDrawerOpen((previous) => (activeTool === "furniture" ? !previous : true));
+    }
+  };
+
+  const handleVariantTriggerClick = (tool: "wall" | "window") => {
+    setActiveTool(tool);
+    setOpenToolVariantMenu((previous) => (previous === tool ? null : tool));
+  };
+
+  const toggleTopMenu = (menu: TopMenu) => {
+    setOpenTopMenu((previous) => (previous === menu ? null : menu));
+  };
+  const topMenuItemClass =
+    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
+  const topMenuGroupTitleClass = "px-3 pb-1 pt-2 text-[11px] uppercase tracking-wide text-slate-400";
 
   const contextToolbar = (() => {
     if (activeTool === "upload") {
@@ -640,77 +718,7 @@ export default function App() {
       );
     }
 
-    if (activeTool === "layers") {
-      return (
-        <>
-          <span className="text-xs text-slate-300">圖層顯示</span>
-          {(Object.keys(layerVisibility) as Array<keyof LayerVisibilityState>).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={`rounded-full border px-3 py-1 text-xs transition ${
-                layerVisibility[key]
-                  ? "border-primary bg-primary/20 text-primary"
-                  : "border-border-dark text-slate-300 hover:border-primary hover:text-white"
-              }`}
-              onClick={() => toggleLayer(key)}
-            >
-              {key === "image"
-                ? "底圖"
-                : key === "walls"
-                  ? "牆線"
-                  : key === "windows"
-                    ? "窗戶"
-                    : "家具"}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="rounded-lg border border-border-dark px-3 py-1.5 text-xs text-slate-200 transition hover:border-primary hover:text-white"
-            onClick={() => setLayerVisibility(DEFAULT_LAYER_VISIBILITY)}
-          >
-            重設圖層
-          </button>
-        </>
-      );
-    }
-
-    return (
-      <>
-        <label className="flex items-center gap-2 text-xs text-slate-200">
-          <input
-            type="checkbox"
-            checked={enableSnapping}
-            onChange={(event) => setEnableSnapping(event.target.checked)}
-          />
-          啟用吸附
-        </label>
-        <label className="flex items-center gap-2 text-xs text-slate-200">
-          <input
-            type="checkbox"
-            checked={showCanvasHint}
-            onChange={(event) => setShowCanvasHint(event.target.checked)}
-          />
-          顯示畫布提示
-        </label>
-        <button
-          type="button"
-          className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-xs text-rose-200 transition hover:bg-rose-500/10"
-          onClick={handleClearLocalData}
-        >
-          清除本地資料
-        </button>
-        {import.meta.env.DEV && (
-          <button
-            type="button"
-            className="rounded-lg border border-border-dark px-3 py-1.5 text-xs text-slate-200 transition hover:border-primary hover:text-white"
-            onClick={() => setIsDevJsonVisible((previous) => !previous)}
-          >
-            {isDevJsonVisible ? "隱藏開發 JSON" : "顯示開發 JSON"}
-          </button>
-        )}
-      </>
-    );
+    return null;
   })();
 
   return (
@@ -720,64 +728,233 @@ export default function App() {
           <span className="material-symbols-outlined text-[20px] text-primary">layers</span>
           <span className="text-base font-bold tracking-tight">SpatialPlanner</span>
         </div>
-        <nav className="hidden items-center gap-1 md:flex">
-          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
-            File
-          </button>
-          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
-            Edit
-          </button>
-          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
-            View
-          </button>
-          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
-            Help
-          </button>
-        </nav>
-        <div className="absolute left-1/2 top-1/2 h-full -translate-x-1/2 -translate-y-1/2">
-          <div className="flex h-full items-center">
-            <div className="segmented-control min-w-[140px]">
-              <div className={`segmented-pill ${activeView === "viewer" ? "viewer" : ""}`} />
-              <button
-                type="button"
-                className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
-                  activeView === "design"
-                    ? "font-bold text-slate-900"
-                    : "font-semibold text-slate-500 hover:text-slate-300"
-                }`}
-                onClick={() => setActiveView("design")}
-              >
-                2D
-              </button>
-              <button
-                type="button"
-                className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
-                  activeView === "viewer"
-                    ? "font-bold text-slate-900"
-                    : "font-semibold text-slate-500 hover:text-slate-300"
-                }`}
-                onClick={() => setActiveView("viewer")}
-              >
-                3D
-              </button>
-            </div>
+        <nav ref={topMenuRef} className="hidden items-center gap-1 md:flex">
+          <div className="relative">
+            <button
+              type="button"
+              className={`rounded px-3 py-1 transition-colors ${
+                openTopMenu === "file" ? "bg-white/15 text-white" : "hover:bg-white/10"
+              }`}
+              onClick={() => toggleTopMenu("file")}
+            >
+              File
+            </button>
+            {openTopMenu === "file" && (
+              <div className="absolute left-0 top-full z-[70] mt-1 min-w-[220px] overflow-hidden rounded-lg border border-border-dark bg-surface-dark py-1 shadow-panel">
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    jsonImportInputRef.current?.click();
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  匯入 JSON
+                </button>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    storage.exportJSON();
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  匯出 JSON
+                </button>
+                <div className="my-1 h-px bg-white/10" />
+                <button
+                  type="button"
+                  className={`${topMenuItemClass} text-rose-200 hover:bg-rose-500/10`}
+                  onClick={() => {
+                    handleClearLocalData();
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  清除本地資料
+                </button>
+              </div>
+            )}
           </div>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          <button
-            type="button"
-            className="rounded px-3 py-1 transition-colors hover:bg-white/10"
-            onClick={() => jsonImportInputRef.current?.click()}
-          >
-            匯入 JSON
-          </button>
-          <button
-            type="button"
-            className="rounded bg-primary/90 px-4 py-1 font-semibold text-white transition-all hover:bg-primary"
-            onClick={storage.exportJSON}
-          >
-            匯出 JSON
-          </button>
+
+          <div className="relative">
+            <button
+              type="button"
+              className={`rounded px-3 py-1 transition-colors ${
+                openTopMenu === "edit" ? "bg-white/15 text-white" : "hover:bg-white/10"
+              }`}
+              onClick={() => toggleTopMenu("edit")}
+            >
+              Edit
+            </button>
+            {openTopMenu === "edit" && (
+              <div className="absolute left-0 top-full z-[70] mt-1 min-w-[240px] overflow-hidden rounded-lg border border-border-dark bg-surface-dark py-1 shadow-panel">
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    setEnableSnapping((previous) => !previous);
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  <span className="w-4 text-primary">{enableSnapping ? "✓" : ""}</span>
+                  <span>啟用吸附</span>
+                </button>
+                <div className="my-1 h-px bg-white/10" />
+                <p className={topMenuGroupTitleClass}>牆線工具</p>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    wallDrawing.undo();
+                    setOpenTopMenu(null);
+                  }}
+                  disabled={!wallDrawing.canUndo}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    wallDrawing.redo();
+                    setOpenTopMenu(null);
+                  }}
+                  disabled={!wallDrawing.canRedo}
+                >
+                  Redo
+                </button>
+                <button
+                  type="button"
+                  className={`${topMenuItemClass} text-rose-200 hover:bg-rose-500/10`}
+                  onClick={() => {
+                    if (!wallDrawing.selectedWallId) return;
+                    wallDrawing.deleteWall(wallDrawing.selectedWallId);
+                    setOpenTopMenu(null);
+                  }}
+                  disabled={!wallDrawing.selectedWallId}
+                >
+                  刪除選取牆段
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              className={`rounded px-3 py-1 transition-colors ${
+                openTopMenu === "view" ? "bg-white/15 text-white" : "hover:bg-white/10"
+              }`}
+              onClick={() => toggleTopMenu("view")}
+            >
+              View
+            </button>
+            {openTopMenu === "view" && (
+              <div className="absolute left-0 top-full z-[70] mt-1 min-w-[260px] overflow-hidden rounded-lg border border-border-dark bg-surface-dark py-1 shadow-panel">
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    setShowCanvasHint((previous) => !previous);
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  <span className="w-4 text-primary">{showCanvasHint ? "✓" : ""}</span>
+                  <span>顯示畫布提示</span>
+                </button>
+                {import.meta.env.DEV && (
+                  <button
+                    type="button"
+                    className={topMenuItemClass}
+                    onClick={() => {
+                      setIsDevJsonVisible((previous) => !previous);
+                      setOpenTopMenu(null);
+                    }}
+                  >
+                    <span className="w-4 text-primary">{isDevJsonVisible ? "✓" : ""}</span>
+                    <span>顯示開發 JSON</span>
+                  </button>
+                )}
+                <div className="my-1 h-px bg-white/10" />
+                <p className={topMenuGroupTitleClass}>圖層工具</p>
+                {(Object.keys(layerVisibility) as Array<keyof LayerVisibilityState>).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={topMenuItemClass}
+                    onClick={() => {
+                      toggleLayer(key);
+                      setOpenTopMenu(null);
+                    }}
+                  >
+                    <span className="w-4 text-primary">{layerVisibility[key] ? "✓" : ""}</span>
+                    <span>{layerLabelMap[key]}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    setLayerVisibility(DEFAULT_LAYER_VISIBILITY);
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  重設圖層
+                </button>
+                <div className="my-1 h-px bg-white/10" />
+                <p className={topMenuGroupTitleClass}>視圖切換</p>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    setActiveView("design");
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  <span className="w-4 text-primary">{activeView === "design" ? "✓" : ""}</span>
+                  <span>切換到 2D</span>
+                </button>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  onClick={() => {
+                    setActiveView("viewer");
+                    setOpenTopMenu(null);
+                  }}
+                >
+                  <span className="w-4 text-primary">{activeView === "viewer" ? "✓" : ""}</span>
+                  <span>切換到 3D</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </nav>
+        <div className="ml-auto flex h-full items-center">
+          <div className="segmented-control min-w-[140px]">
+            <div className={`segmented-pill ${activeView === "viewer" ? "viewer" : ""}`} />
+            <button
+              type="button"
+              className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
+                activeView === "design"
+                  ? "font-bold text-slate-900"
+                  : "font-semibold text-slate-500 hover:text-slate-300"
+              }`}
+              onClick={() => setActiveView("design")}
+            >
+              2D
+            </button>
+            <button
+              type="button"
+              className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
+                activeView === "viewer"
+                  ? "font-bold text-slate-900"
+                  : "font-semibold text-slate-500 hover:text-slate-300"
+              }`}
+              onClick={() => setActiveView("viewer")}
+            >
+              3D
+            </button>
+          </div>
         </div>
       </header>
 
@@ -795,6 +972,10 @@ export default function App() {
                 {TOOL_ITEMS.map((item) => {
                   const hasVariants = item.key === "wall" || item.key === "window";
                   const isActive = activeTool === item.key;
+                  const toolIcon = sidebarToolIcons[item.key];
+                  const isVariantMenuOpen =
+                    (item.key === "wall" || item.key === "window") &&
+                    openToolVariantMenu === item.key;
 
                   return (
                     <div key={item.key} className="relative">
@@ -808,21 +989,41 @@ export default function App() {
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setActiveTool(item.key);
-                          if (hasVariants) {
-                            setOpenToolVariantMenu((previous) =>
-                              previous === item.key ? null : item.key,
-                            );
-                          } else {
-                            setOpenToolVariantMenu(null);
-                          }
+                          handleToolButtonClick(item.key);
                         }}
                       >
-                        <span className="material-symbols-outlined text-[28px]">{item.icon}</span>
-                        {hasVariants && (
-                          <span className={`tool-triangle ${isActive ? "active-tool-triangle" : ""}`} />
+                        {toolIcon.kind === "material" ? (
+                          <span className="material-symbols-outlined text-[28px]">{toolIcon.name}</span>
+                        ) : (
+                          <SvgIconImage
+                            src={toolIcon.src}
+                            className={`h-7 w-7 ${isActive ? "opacity-100" : "opacity-75"}`}
+                          />
                         )}
                       </button>
+                      {hasVariants && (
+                        <button
+                          type="button"
+                          aria-label={`${item.label} 子功能`}
+                          className={`absolute bottom-1 right-1 z-20 flex h-4 w-4 items-center justify-center rounded-sm transition ${
+                            isVariantMenuOpen ? "bg-white/20" : "hover:bg-white/15"
+                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (item.key === "wall" || item.key === "window") {
+                              handleVariantTriggerClick(item.key);
+                            }
+                          }}
+                        >
+                          <span
+                            className={`text-[10px] leading-none ${
+                              isActive || isVariantMenuOpen ? "text-white" : "text-icon-inactive"
+                            }`}
+                          >
+                            ▾
+                          </span>
+                        </button>
+                      )}
 
                       {item.key === "wall" && openToolVariantMenu === "wall" && (
                         <div className="flyout-menu absolute left-[76px] top-0 z-50 flex min-w-[210px] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark">
@@ -842,7 +1043,7 @@ export default function App() {
                                   setOpenToolVariantMenu(null);
                                 }}
                               >
-                                <span className="material-symbols-outlined text-[22px]">{option.icon}</span>
+                                <SvgIconImage src={option.iconSrc} className="h-5 w-5 opacity-100" />
                                 <span className="flex-1 font-medium">{option.label}</span>
                               </button>
                             );
@@ -868,7 +1069,7 @@ export default function App() {
                                   setOpenToolVariantMenu(null);
                                 }}
                               >
-                                <span className="material-symbols-outlined text-[22px]">window</span>
+                                <SvgIconImage src={option.iconSrc} className="h-5 w-5 opacity-100" />
                                 <span className="flex-1 font-medium">{option.label}</span>
                               </button>
                             );
@@ -993,7 +1194,7 @@ export default function App() {
 
             {storage.status && (
               <section
-                className={`absolute bottom-12 left-4 z-40 rounded-lg px-3 py-2 text-sm ${
+                className={`absolute bottom-4 right-4 z-40 flex max-w-[460px] items-center gap-3 rounded-lg px-3 py-2 text-sm ${
                   storage.status.type === "success"
                     ? "border border-emerald-700/30 bg-emerald-900/20 text-emerald-200"
                     : "border border-rose-700/30 bg-rose-900/20 text-rose-200"
