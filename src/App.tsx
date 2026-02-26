@@ -81,21 +81,14 @@ const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
   furniture: true,
 };
 
-function MaskIcon({ src, className }: { src: string; className: string }) {
+function SvgIconImage({ src, className }: { src: string; className: string }) {
   return (
-    <span
+    <img
+      src={src}
+      alt=""
       aria-hidden
-      className={`inline-block shrink-0 bg-current ${className}`}
-      style={{
-        WebkitMaskImage: `url(${src})`,
-        maskImage: `url(${src})`,
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-        WebkitMaskSize: "contain",
-        maskSize: "contain",
-      }}
+      draggable={false}
+      className={`inline-block shrink-0 select-none svg-icon-invert ${className}`}
     />
   );
 }
@@ -1002,7 +995,10 @@ export default function App() {
                         {toolIcon.kind === "material" ? (
                           <span className="material-symbols-outlined text-[28px]">{toolIcon.name}</span>
                         ) : (
-                          <MaskIcon src={toolIcon.src} className="h-7 w-7" />
+                          <SvgIconImage
+                            src={toolIcon.src}
+                            className={`h-7 w-7 ${isActive ? "opacity-100" : "opacity-75"}`}
+                          />
                         )}
                       </button>
                       {hasVariants && (
@@ -1047,7 +1043,7 @@ export default function App() {
                                   setOpenToolVariantMenu(null);
                                 }}
                               >
-                                <MaskIcon src={option.iconSrc} className="h-5 w-5" />
+                                <SvgIconImage src={option.iconSrc} className="h-5 w-5 opacity-100" />
                                 <span className="flex-1 font-medium">{option.label}</span>
                               </button>
                             );
@@ -1073,7 +1069,7 @@ export default function App() {
                                   setOpenToolVariantMenu(null);
                                 }}
                               >
-                                <MaskIcon src={option.iconSrc} className="h-5 w-5" />
+                                <SvgIconImage src={option.iconSrc} className="h-5 w-5 opacity-100" />
                                 <span className="flex-1 font-medium">{option.label}</span>
                               </button>
                             );

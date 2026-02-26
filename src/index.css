@@ -116,6 +116,10 @@
     background-size: 50px 50px;
   }
 
+  .svg-icon-invert {
+    filter: invert(1);
+  }
+
   .tool-triangle {
     width: 0;
     height: 0;
