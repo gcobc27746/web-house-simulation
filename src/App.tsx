@@ -2,6 +2,7 @@ import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useSta
 import { Canvas } from "./components/Canvas";
 import { DistanceInputDialog } from "./components/DistanceInputDialog";
 import { FurniturePanel } from "./components/FurniturePanel";
+import { ModelCalibrationWorkspace } from "./components/ModelCalibrationWorkspace";
 import { getFurnitureCatalogItem } from "./furniture/catalog";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { type LoadedImagePayload, useImageUpload } from "./hooks/useImageUpload";
@@ -33,7 +34,7 @@ const WINDOW_BALCONY_ICON = new URL("../resources/icons/balcony.svg", import.met
 const nowIso = () => new Date().toISOString();
 type ViewMode = "design" | "viewer";
 type TopMenu = "file" | "edit" | "view";
-type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture";
+type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture" | "model";
 type ToolIcon =
   | { kind: "material"; name: string }
   | { kind: "svg"; src: string };
@@ -50,6 +51,7 @@ const TOOL_ITEMS: Array<{ key: ToolMode; label: string }> = [
   { key: "wall", label: "牆線" },
   { key: "window", label: "窗戶" },
   { key: "furniture", label: "家具" },
+  { key: "model", label: "模型" },
 ];
 
 const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string; iconSrc: string }> = [
@@ -491,11 +493,15 @@ export default function App() {
     wall: { kind: "svg", src: activeWallOption.iconSrc },
     window: { kind: "svg", src: activeWindowOption.iconSrc },
     furniture: { kind: "material", name: "chair" },
+    model: { kind: "material", name: "view_in_ar" },
   };
 
   const handleToolButtonClick = (tool: ToolMode) => {
     setOpenToolVariantMenu(null);
     setActiveTool(tool);
+    if (tool !== "furniture") {
+      setIsFurnitureDrawerOpen(false);
+    }
     if (tool === "furniture") {
       setIsFurnitureDrawerOpen((previous) => (activeTool === "furniture" ? !previous : true));
     }
@@ -715,6 +721,19 @@ export default function App() {
             刪除選取家具
           </button>
           <span className="text-xs text-slate-400">家具：{furniture.length}</span>
+        </>
+      );
+    }
+
+    if (activeTool === "model") {
+      return (
+        <>
+          <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+            3D 模型校正模式
+          </span>
+          <span className="text-xs text-slate-300">
+            可匯入 OBJ / DAE / GLTF / GLB，調整方向與縮放後匯出 GLB 與校正包。
+          </span>
         </>
       );
     }
@@ -1077,148 +1096,163 @@ export default function App() {
             </aside>
 
           <section className="relative flex min-w-0 flex-1 overflow-hidden bg-[#0a0a0a]">
-            <div className="pointer-events-none absolute inset-0 bg-grid-pattern opacity-[0.08]" />
-            <Canvas
-              className="relative z-10 h-full w-full"
-              image={uploadedImage}
-              layerVisibility={layerVisibility}
-              enableSnapping={enableSnapping}
-              showHintBar={showCanvasHint}
-              isCalibrationMode={calibration.isCalibrationMode}
-              measurementPoints={calibration.measurementPoints}
-              scale={calibration.scale}
-              onAddMeasurementPoint={calibration.addMeasurementPoint}
-              isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
-              walls={wallDrawing.walls}
-              polygons={wallDrawing.polygons}
-              selectedWallId={wallDrawing.selectedWallId}
-              currentWall={wallDrawing.currentWall}
-              onBeginWall={wallDrawing.beginWall}
-              onUpdateCurrentWall={wallDrawing.updateCurrentWall}
-              onCompleteCurrentWall={wallDrawing.completeCurrentWall}
-              onSelectWall={(id) => {
-                wallDrawing.selectWall(id);
-                if (id) setSelectedFurnitureId(null);
-              }}
-              onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
-              isWindowMode={windowMarking.isWindowMode}
-              windows={windowMarking.windows}
-              selectedWindowId={windowMarking.selectedWindowId}
-              selectedWindowType={windowMarking.selectedType}
-              onAddWindowByOffsets={windowMarking.addWindowByOffsets}
-              onSelectWindow={(id) => {
-                windowMarking.selectWindow(id);
-                if (id) setSelectedFurnitureId(null);
-              }}
-              furniture={furniture}
-              selectedFurnitureId={selectedFurnitureId}
-              onSelectFurniture={(id) => {
-                setSelectedFurnitureId(id);
-                if (id) {
-                  wallDrawing.selectWall(null);
-                  windowMarking.selectWindow(null);
-                }
-              }}
-              onMoveFurniture={moveFurniture}
-              onCanvasStatusChange={setCanvasStatus}
-            />
+            {activeTool === "model" ? (
+              <ModelCalibrationWorkspace />
+            ) : (
+              <>
+                <div className="pointer-events-none absolute inset-0 bg-grid-pattern opacity-[0.08]" />
+                <Canvas
+                  className="relative z-10 h-full w-full"
+                  image={uploadedImage}
+                  layerVisibility={layerVisibility}
+                  enableSnapping={enableSnapping}
+                  showHintBar={showCanvasHint}
+                  isCalibrationMode={calibration.isCalibrationMode}
+                  measurementPoints={calibration.measurementPoints}
+                  scale={calibration.scale}
+                  onAddMeasurementPoint={calibration.addMeasurementPoint}
+                  isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
+                  walls={wallDrawing.walls}
+                  polygons={wallDrawing.polygons}
+                  selectedWallId={wallDrawing.selectedWallId}
+                  currentWall={wallDrawing.currentWall}
+                  onBeginWall={wallDrawing.beginWall}
+                  onUpdateCurrentWall={wallDrawing.updateCurrentWall}
+                  onCompleteCurrentWall={wallDrawing.completeCurrentWall}
+                  onSelectWall={(id) => {
+                    wallDrawing.selectWall(id);
+                    if (id) setSelectedFurnitureId(null);
+                  }}
+                  onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
+                  isWindowMode={windowMarking.isWindowMode}
+                  windows={windowMarking.windows}
+                  selectedWindowId={windowMarking.selectedWindowId}
+                  selectedWindowType={windowMarking.selectedType}
+                  onAddWindowByOffsets={windowMarking.addWindowByOffsets}
+                  onSelectWindow={(id) => {
+                    windowMarking.selectWindow(id);
+                    if (id) setSelectedFurnitureId(null);
+                  }}
+                  furniture={furniture}
+                  selectedFurnitureId={selectedFurnitureId}
+                  onSelectFurniture={(id) => {
+                    setSelectedFurnitureId(id);
+                    if (id) {
+                      wallDrawing.selectWall(null);
+                      windowMarking.selectWindow(null);
+                    }
+                  }}
+                  onMoveFurniture={moveFurniture}
+                  onCanvasStatusChange={setCanvasStatus}
+                />
 
-            {activeTool === "upload" && !uploadedImage && (
-              <section
-                className={`absolute left-1/2 top-6 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
-                  isImageDragging ? "border-primary" : ""
-                }`}
-                onDrop={onImageDrop}
-                onDragOver={onImageDragOver}
-                onDragLeave={onImageDragLeave}
-              >
-                <p className="text-sm font-semibold text-slate-100">拖放圖片快速上傳</p>
-                <p className="mt-1 text-xs text-slate-400">也可使用上方工具列按鈕選擇檔案。</p>
-                <button
-                  type="button"
-                  className="btn mt-3 h-8 px-3 py-0 text-xs"
-                  onClick={() => imageInputRef.current?.click()}
-                >
-                  選擇圖片
-                </button>
-                {imageUpload.error && (
-                  <div className="mt-3 rounded-lg border border-rose-600/30 bg-rose-600/10 px-2 py-1 text-xs text-rose-200">
-                    {imageUpload.error}
+                {activeTool === "upload" && !uploadedImage && (
+                  <section
+                    className={`absolute left-1/2 top-6 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
+                      isImageDragging ? "border-primary" : ""
+                    }`}
+                    onDrop={onImageDrop}
+                    onDragOver={onImageDragOver}
+                    onDragLeave={onImageDragLeave}
+                  >
+                    <p className="text-sm font-semibold text-slate-100">拖放圖片快速上傳</p>
+                    <p className="mt-1 text-xs text-slate-400">也可使用上方工具列按鈕選擇檔案。</p>
                     <button
                       type="button"
-                      className="ml-2 text-rose-100 underline"
-                      onClick={() => imageUpload.setError(null)}
+                      className="btn mt-3 h-8 px-3 py-0 text-xs"
+                      onClick={() => imageInputRef.current?.click()}
                     >
+                      選擇圖片
+                    </button>
+                    {imageUpload.error && (
+                      <div className="mt-3 rounded-lg border border-rose-600/30 bg-rose-600/10 px-2 py-1 text-xs text-rose-200">
+                        {imageUpload.error}
+                        <button
+                          type="button"
+                          className="ml-2 text-rose-100 underline"
+                          onClick={() => imageUpload.setError(null)}
+                        >
+                          關閉
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {activeTool === "furniture" && isFurnitureDrawerOpen && (
+                  <aside className="absolute bottom-4 right-4 top-4 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
+                    <FurniturePanel
+                      canPlace={Boolean(uploadedImage && calibration.scale)}
+                      furnitureCount={furniture.length}
+                      selectedFurnitureId={selectedFurnitureId}
+                      onClose={() => setIsFurnitureDrawerOpen(false)}
+                      onAddFurniture={addFurniture}
+                      onRotateSelected={rotateSelectedFurniture}
+                      onDeleteSelected={deleteSelectedFurniture}
+                    />
+                  </aside>
+                )}
+
+                {import.meta.env.DEV && isDevJsonVisible && (
+                  <aside className="absolute bottom-12 right-4 z-40 w-[420px] rounded-xl border border-primary/30 bg-[#0b1320]/95 p-4 shadow-panel backdrop-blur">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h2 className="text-sm font-semibold text-primary">開發模式 JSON Viewer</h2>
+                      <button
+                        type="button"
+                        className="text-xs text-slate-300 hover:text-white"
+                        onClick={() => setIsDevJsonVisible(false)}
+                      >
+                        關閉
+                      </button>
+                    </div>
+                    <pre className="json-view max-h-[320px]">{debugJsonText}</pre>
+                  </aside>
+                )}
+
+                {storage.status && (
+                  <section
+                    className={`absolute bottom-4 right-4 z-40 flex max-w-[460px] items-center gap-3 rounded-lg px-3 py-2 text-sm ${
+                      storage.status.type === "success"
+                        ? "border border-emerald-700/30 bg-emerald-900/20 text-emerald-200"
+                        : "border border-rose-700/30 bg-rose-900/20 text-rose-200"
+                    }`}
+                  >
+                    <p className="inline">{storage.status.message}</p>
+                    <button type="button" className="btn btn-link" onClick={storage.clearStatus}>
                       關閉
                     </button>
-                  </div>
+                  </section>
                 )}
-              </section>
-            )}
 
-            {activeTool === "furniture" && isFurnitureDrawerOpen && (
-              <aside className="absolute bottom-4 right-4 top-4 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
-                <FurniturePanel
-                  canPlace={Boolean(uploadedImage && calibration.scale)}
-                  furnitureCount={furniture.length}
-                  selectedFurnitureId={selectedFurnitureId}
-                  onClose={() => setIsFurnitureDrawerOpen(false)}
-                  onAddFurniture={addFurniture}
-                  onRotateSelected={rotateSelectedFurniture}
-                  onDeleteSelected={deleteSelectedFurniture}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  className="hidden-input"
+                  onChange={onImageInputChange}
                 />
-              </aside>
+              </>
             )}
-
-            {import.meta.env.DEV && isDevJsonVisible && (
-              <aside className="absolute bottom-12 right-4 z-40 w-[420px] rounded-xl border border-primary/30 bg-[#0b1320]/95 p-4 shadow-panel backdrop-blur">
-                <div className="mb-2 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-primary">開發模式 JSON Viewer</h2>
-                  <button
-                    type="button"
-                    className="text-xs text-slate-300 hover:text-white"
-                    onClick={() => setIsDevJsonVisible(false)}
-                  >
-                    關閉
-                  </button>
-                </div>
-                <pre className="json-view max-h-[320px]">{debugJsonText}</pre>
-              </aside>
-            )}
-
-            {storage.status && (
-              <section
-                className={`absolute bottom-4 right-4 z-40 flex max-w-[460px] items-center gap-3 rounded-lg px-3 py-2 text-sm ${
-                  storage.status.type === "success"
-                    ? "border border-emerald-700/30 bg-emerald-900/20 text-emerald-200"
-                    : "border border-rose-700/30 bg-rose-900/20 text-rose-200"
-                }`}
-              >
-                <p className="inline">{storage.status.message}</p>
-                <button type="button" className="btn btn-link" onClick={storage.clearStatus}>
-                  關閉
-                </button>
-              </section>
-            )}
-
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/jpeg,image/png"
-              className="hidden-input"
-              onChange={onImageInputChange}
-            />
           </section>
         </div>
         <footer className="z-50 flex h-8 items-center justify-between border-t border-black bg-surface-darker px-4 text-xs text-slate-400">
-          <div className="flex items-center gap-4">
-            <span>
-              X: {canvasStatus.cursor ? canvasStatus.cursor.x.toFixed(0) : "--"} Y:{" "}
-              {canvasStatus.cursor ? canvasStatus.cursor.y.toFixed(0) : "--"}
-            </span>
-            <span>Unit: Metric</span>
-          </div>
-          <span className="font-mono">{canvasStatus.zoomPercent}%</span>
+          {activeTool === "model" ? (
+            <>
+              <span>模型校正工具：在左側設定旋轉與比例，並匯出 GLB / 校正包。</span>
+              <span className="font-mono">Unit: Meter</span>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-4">
+                <span>
+                  X: {canvasStatus.cursor ? canvasStatus.cursor.x.toFixed(0) : "--"} Y:{" "}
+                  {canvasStatus.cursor ? canvasStatus.cursor.y.toFixed(0) : "--"}
+                </span>
+                <span>Unit: Metric</span>
+              </div>
+              <span className="font-mono">{canvasStatus.zoomPercent}%</span>
+            </>
+          )}
         </footer>
       </>
       ) : (
