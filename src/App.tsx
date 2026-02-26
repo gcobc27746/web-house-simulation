@@ -83,19 +83,13 @@ const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
 
 function MaskIcon({ src, className }: { src: string; className: string }) {
   return (
-    <span
+    <img
       aria-hidden
-      className={`inline-block shrink-0 bg-current ${className}`}
-      style={{
-        WebkitMaskImage: `url(${src})`,
-        maskImage: `url(${src})`,
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-        WebkitMaskSize: "contain",
-        maskSize: "contain",
-      }}
+      src={src}
+      alt=""
+      draggable={false}
+      className={`inline-block shrink-0 ${className}`}
+      style={{ filter: "invert(1)" }}
     />
   );
 }
@@ -936,8 +930,8 @@ export default function App() {
             )}
           </div>
         </nav>
-        <div className="ml-auto flex h-full items-center">
-          <div className="segmented-control min-w-[140px]">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="segmented-control min-w-[140px] pointer-events-auto">
             <div className={`segmented-pill ${activeView === "viewer" ? "viewer" : ""}`} />
             <button
               type="button"
@@ -1006,27 +1000,23 @@ export default function App() {
                         )}
                       </button>
                       {hasVariants && (
-                        <button
-                          type="button"
-                          aria-label={`${item.label} 子功能`}
-                          className={`absolute bottom-1 right-1 z-20 flex h-4 w-4 items-center justify-center rounded-sm transition ${
-                            isVariantMenuOpen ? "bg-white/20" : "hover:bg-white/15"
-                          }`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (item.key === "wall" || item.key === "window") {
-                              handleVariantTriggerClick(item.key);
-                            }
-                          }}
-                        >
-                          <span
-                            className={`text-[10px] leading-none ${
-                              isActive || isVariantMenuOpen ? "text-white" : "text-icon-inactive"
-                            }`}
-                          >
-                            ▾
-                          </span>
-                        </button>
+                        <>
+                          <div
+                            className={`tool-triangle ${isActive || isVariantMenuOpen ? "active-tool-triangle" : ""}`}
+                            aria-hidden
+                          />
+                          <button
+                            type="button"
+                            aria-label={`${item.label} 子功能`}
+                            className="absolute bottom-1 right-1 z-20 h-4 w-4 min-w-0 p-0 opacity-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.key === "wall" || item.key === "window") {
+                                handleVariantTriggerClick(item.key);
+                              }
+                            }}
+                          />
+                        </>
                       )}
 
                       {item.key === "wall" && openToolVariantMenu === "wall" && (
