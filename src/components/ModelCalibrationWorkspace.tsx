@@ -483,6 +483,7 @@ export function ModelCalibrationWorkspace() {
   const [actualDimensions, setActualDimensions] = useState<DimensionSize | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [status, setStatus] = useState<{ type: StatusType; message: string } | null>(null);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
 
   const updateDimensionHelpers = useCallback((bounds: THREE.Box3) => {
     const helperRoot = helperRootRef.current;
@@ -956,154 +957,171 @@ export function ModelCalibrationWorkspace() {
         >
           重置視角
         </button>
+        <button
+          type="button"
+          className="rounded-lg border border-border-dark px-3 py-1.5 text-xs text-slate-200 transition hover:border-primary hover:text-white"
+          onClick={() => setIsInspectorOpen((previous) => !previous)}
+        >
+          {isInspectorOpen ? "隱藏設定面板" : "顯示設定面板"}
+        </button>
         <span className="ml-auto text-xs text-slate-400">
           支援：OBJ + MTL + 貼圖 / DAE / GLTF / GLB
         </span>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="custom-scrollbar w-[360px] shrink-0 overflow-y-auto border-r border-border-dark bg-surface-dark p-4">
-          <h2 className="text-base font-semibold text-white">家具模型校正工具</h2>
-          <p className="mt-1 text-xs text-slate-400">
-            在這裡調整模型方向與尺寸，確認實際公尺數後匯出成可再匯入格式。
-          </p>
-
-          <div className="mt-3 rounded-lg border border-border-dark bg-background-dark/50 px-3 py-2 text-xs text-slate-300">
-            {fileSummaryText}
-          </div>
-
-          {status && (
-            <div
-              className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
-                status.type === "success"
-                  ? "border-emerald-600/30 bg-emerald-900/20 text-emerald-200"
-                  : status.type === "error"
-                    ? "border-rose-600/30 bg-rose-900/20 text-rose-200"
-                    : "border-blue-600/30 bg-blue-900/20 text-blue-200"
-              }`}
-            >
-              {status.message}
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+        <div ref={mountRef} className="h-full w-full" />
+        {!source && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="rounded-xl border border-border-dark bg-surface-dark/90 px-5 py-4 text-center text-sm text-slate-300 shadow-panel">
+              請先匯入 3D 模型檔，開始方向與尺寸校正。
             </div>
-          )}
-
-          <div className="mt-4 space-y-3 rounded-xl border border-border-dark bg-background-dark/60 p-3">
-            <h3 className="text-sm font-medium text-slate-100">方向旋轉（度）</h3>
-            <label className="block text-xs text-slate-300">
-              X 軸
-              <input
-                type="number"
-                className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
-                value={rotationDeg.x}
-                step={1}
-                onChange={(event) => onRotationChange("x", Number(event.target.value))}
-              />
-            </label>
-            <label className="block text-xs text-slate-300">
-              Y 軸
-              <input
-                type="number"
-                className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
-                value={rotationDeg.y}
-                step={1}
-                onChange={(event) => onRotationChange("y", Number(event.target.value))}
-              />
-            </label>
-            <label className="block text-xs text-slate-300">
-              Z 軸
-              <input
-                type="number"
-                className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
-                value={rotationDeg.z}
-                step={1}
-                onChange={(event) => onRotationChange("z", Number(event.target.value))}
-              />
-            </label>
           </div>
+        )}
+        <div className="pointer-events-none absolute right-4 top-4 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-[11px] text-slate-200">
+          滑鼠左鍵旋轉 / 右鍵平移 / 滾輪縮放
+        </div>
 
-          <div className="mt-3 space-y-3 rounded-xl border border-border-dark bg-background-dark/60 p-3">
-            <h3 className="text-sm font-medium text-slate-100">尺寸縮放</h3>
-            <label className="block text-xs text-slate-300">
-              1 模型單位 = 幾公尺
-              <input
-                type="number"
-                min={0.000001}
-                step={0.001}
-                className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
-                value={metersPerUnit}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (Number.isFinite(next) && next > 0) {
-                    setMetersPerUnit(next);
-                  }
-                }}
-              />
-            </label>
-            <label className="block text-xs text-slate-300">
-              額外縮放倍率
-              <input
-                type="number"
-                min={0.0001}
-                step={0.01}
-                className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
-                value={uniformScale}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (Number.isFinite(next) && next > 0) {
-                    setUniformScale(next);
-                  }
-                }}
-              />
-            </label>
-          </div>
+        {!isInspectorOpen && (
+          <button
+            type="button"
+            className="absolute left-4 top-4 z-30 rounded-lg border border-border-dark bg-surface-darker/90 px-3 py-2 text-xs text-slate-100 shadow-panel transition hover:border-primary hover:text-white"
+            onClick={() => setIsInspectorOpen(true)}
+          >
+            顯示設定面板
+          </button>
+        )}
 
-          <div className="mt-3 rounded-xl border border-border-dark bg-background-dark/60 p-3 text-xs text-slate-300">
-            <h3 className="text-sm font-medium text-slate-100">模型尺寸（實際公尺）</h3>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
-                <p className="text-[11px] text-slate-400">寬 (X)</p>
-                <p className="font-mono text-slate-100">
-                  {actualDimensions ? formatMeters(actualDimensions.width) : "--"}
-                </p>
-              </div>
-              <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
-                <p className="text-[11px] text-slate-400">深 (Z)</p>
-                <p className="font-mono text-slate-100">
-                  {actualDimensions ? formatMeters(actualDimensions.depth) : "--"}
-                </p>
-              </div>
-              <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
-                <p className="text-[11px] text-slate-400">高 (Y)</p>
-                <p className="font-mono text-slate-100">
-                  {actualDimensions ? formatMeters(actualDimensions.height) : "--"}
-                </p>
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] text-slate-400">
-              原始包圍盒：{" "}
-              {sourceDimensions
-                ? `${sourceDimensions.width.toFixed(3)} x ${sourceDimensions.depth.toFixed(3)} x ${sourceDimensions.height.toFixed(3)} (模型單位)`
-                : "--"}
+        {isInspectorOpen && (
+          <aside className="custom-scrollbar absolute bottom-4 left-4 top-4 z-20 w-[340px] max-w-[calc(100%-2rem)] overflow-y-auto rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur">
+            <h2 className="text-base font-semibold text-white">家具模型校正工具</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              在這裡調整模型方向與尺寸，確認實際公尺數後匯出成可再匯入格式。
             </p>
-          </div>
 
-          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-            比例尺：地板網格每格 = 1m；左下黃色尺規長度 = 1m。藍框是模型外框，橘/綠/紫線分別代表寬/深/高量測線。
-          </div>
-        </aside>
-
-        <main className="relative min-w-0 flex-1 overflow-hidden bg-black">
-          <div ref={mountRef} className="h-full w-full" />
-          {!source && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="rounded-xl border border-border-dark bg-surface-dark/90 px-5 py-4 text-center text-sm text-slate-300 shadow-panel">
-                請先匯入 3D 模型檔，開始方向與尺寸校正。
-              </div>
+            <div className="mt-3 rounded-lg border border-border-dark bg-background-dark/50 px-3 py-2 text-xs text-slate-300">
+              {fileSummaryText}
             </div>
-          )}
-          <div className="pointer-events-none absolute left-4 top-4 rounded-lg border border-white/15 bg-black/55 px-3 py-2 text-[11px] text-slate-200">
-            滑鼠左鍵旋轉 / 右鍵平移 / 滾輪縮放
-          </div>
-        </main>
+
+            {status && (
+              <div
+                className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                  status.type === "success"
+                    ? "border-emerald-600/30 bg-emerald-900/20 text-emerald-200"
+                    : status.type === "error"
+                      ? "border-rose-600/30 bg-rose-900/20 text-rose-200"
+                      : "border-blue-600/30 bg-blue-900/20 text-blue-200"
+                }`}
+              >
+                {status.message}
+              </div>
+            )}
+
+            <div className="mt-4 space-y-3 rounded-xl border border-border-dark bg-background-dark/60 p-3">
+              <h3 className="text-sm font-medium text-slate-100">方向旋轉（度）</h3>
+              <label className="block text-xs text-slate-300">
+                X 軸
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
+                  value={rotationDeg.x}
+                  step={1}
+                  onChange={(event) => onRotationChange("x", Number(event.target.value))}
+                />
+              </label>
+              <label className="block text-xs text-slate-300">
+                Y 軸
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
+                  value={rotationDeg.y}
+                  step={1}
+                  onChange={(event) => onRotationChange("y", Number(event.target.value))}
+                />
+              </label>
+              <label className="block text-xs text-slate-300">
+                Z 軸
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
+                  value={rotationDeg.z}
+                  step={1}
+                  onChange={(event) => onRotationChange("z", Number(event.target.value))}
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 space-y-3 rounded-xl border border-border-dark bg-background-dark/60 p-3">
+              <h3 className="text-sm font-medium text-slate-100">尺寸縮放</h3>
+              <label className="block text-xs text-slate-300">
+                1 模型單位 = 幾公尺
+                <input
+                  type="number"
+                  min={0.000001}
+                  step={0.001}
+                  className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
+                  value={metersPerUnit}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (Number.isFinite(next) && next > 0) {
+                      setMetersPerUnit(next);
+                    }
+                  }}
+                />
+              </label>
+              <label className="block text-xs text-slate-300">
+                額外縮放倍率
+                <input
+                  type="number"
+                  min={0.0001}
+                  step={0.01}
+                  className="mt-1 w-full rounded-md border border-border-dark bg-background-dark px-2 py-1.5 text-sm text-slate-100"
+                  value={uniformScale}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (Number.isFinite(next) && next > 0) {
+                      setUniformScale(next);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-border-dark bg-background-dark/60 p-3 text-xs text-slate-300">
+              <h3 className="text-sm font-medium text-slate-100">模型尺寸（實際公尺）</h3>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
+                  <p className="text-[11px] text-slate-400">寬 (X)</p>
+                  <p className="font-mono text-slate-100">
+                    {actualDimensions ? formatMeters(actualDimensions.width) : "--"}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
+                  <p className="text-[11px] text-slate-400">深 (Z)</p>
+                  <p className="font-mono text-slate-100">
+                    {actualDimensions ? formatMeters(actualDimensions.depth) : "--"}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border-dark bg-surface-darker/60 p-2">
+                  <p className="text-[11px] text-slate-400">高 (Y)</p>
+                  <p className="font-mono text-slate-100">
+                    {actualDimensions ? formatMeters(actualDimensions.height) : "--"}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-400">
+                原始包圍盒：{" "}
+                {sourceDimensions
+                  ? `${sourceDimensions.width.toFixed(3)} x ${sourceDimensions.depth.toFixed(3)} x ${sourceDimensions.height.toFixed(3)} (模型單位)`
+                  : "--"}
+              </p>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+              比例尺：地板網格每格 = 1m；左下黃色尺規長度 = 1m。藍框是模型外框，橘/綠/紫線分別代表寬/深/高量測線。
+            </div>
+          </aside>
+        )}
       </div>
 
       <input
