@@ -915,7 +915,7 @@ export function ModelCalibrationWorkspace() {
   }, [source, sourceFiles.length]);
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[#0f1117]">
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col bg-[#0f1117]">
       <div className="flex flex-wrap items-center gap-2 border-b border-border-dark bg-surface-darker px-3 py-2 text-xs text-slate-300">
         <button
           type="button"
