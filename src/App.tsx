@@ -44,6 +44,11 @@ const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string }> = [
   { type: "balcony", label: "陽台窗" },
 ];
 
+const WALL_DRAW_MODE_OPTIONS = [
+  { key: "continuous", label: "連續牆體", icon: "polyline", continuous: true },
+  { key: "single", label: "單段式牆體", icon: "horizontal_rule", continuous: false },
+] as const;
+
 const DEFAULT_LAYER_VISIBILITY: LayerVisibilityState = {
   image: true,
   walls: true,
@@ -95,6 +100,7 @@ const getDefaultFurniturePosition = (data: FloorplanData): Point2D => {
 export default function App() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const jsonImportInputRef = useRef<HTMLInputElement>(null);
+  const toolSidebarRef = useRef<HTMLElement>(null);
 
   const [floorplanData, setFloorplanData] = useState<FloorplanData>(
     createInitialData,
@@ -112,6 +118,7 @@ export default function App() {
   const [isDistanceDialogOpen, setIsDistanceDialogOpen] = useState(false);
   const [activeView, setActiveView] = useState<ViewMode>("design");
   const [activeTool, setActiveTool] = useState<ToolMode>("upload");
+  const [openToolVariantMenu, setOpenToolVariantMenu] = useState<ToolMode | null>(null);
   const [isFurnitureDrawerOpen, setIsFurnitureDrawerOpen] = useState(false);
   const [isImageDragging, setIsImageDragging] = useState(false);
   const [showCanvasHint, setShowCanvasHint] = useState(true);
@@ -290,6 +297,23 @@ export default function App() {
   }, [activeTool]);
 
   useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (toolSidebarRef.current?.contains(target)) return;
+      setOpenToolVariantMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  useEffect(() => {
+    if (activeView !== "design") {
+      setOpenToolVariantMenu(null);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
     setFloorplanData((previous) => ({
       ...previous,
       walls: wallDrawing.walls,
@@ -405,6 +429,11 @@ export default function App() {
     setLayerVisibility((previous) => ({ ...previous, [key]: !previous[key] }));
   };
 
+  const activeWindowTypeLabel =
+    WINDOW_TYPE_OPTIONS.find((option) => option.type === windowMarking.selectedType)?.label ?? "一般窗";
+
+  const activeWallDrawModeLabel = wallDrawing.isContinuousMode ? "連續牆體" : "單段式牆體";
+
   const contextToolbar = (() => {
     if (activeTool === "upload") {
       return (
@@ -490,15 +519,10 @@ export default function App() {
           >
             {wallDrawing.isDrawingMode ? "停止繪製" : "開始繪製"}
           </button>
-          <label className="flex items-center gap-2 text-xs text-slate-200">
-            <input
-              type="checkbox"
-              checked={wallDrawing.isContinuousMode}
-              onChange={(event) => wallDrawing.setContinuousMode(event.target.checked)}
-              disabled={!uploadedImage || !calibration.scale}
-            />
-            連續繪製
-          </label>
+          <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+            模式：{activeWallDrawModeLabel}
+          </span>
+          <span className="text-xs text-slate-400">可由左側牆體工具子選單切換</span>
           <div className="h-5 w-px bg-white/10" />
           <button
             type="button"
@@ -556,23 +580,10 @@ export default function App() {
           >
             {windowMarking.isWindowMode ? "停止窗戶模式" : "開始窗戶模式"}
           </button>
-          <div className="flex flex-wrap items-center gap-2">
-            {WINDOW_TYPE_OPTIONS.map((option) => (
-              <button
-                key={option.type}
-                type="button"
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  windowMarking.selectedType === option.type
-                    ? "border-primary bg-primary/20 text-primary"
-                    : "border-border-dark text-slate-300 hover:border-primary hover:text-white"
-                }`}
-                onClick={() => windowMarking.setWindowType(option.type)}
-                disabled={!uploadedImage || !calibration.scale}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+            窗型：{activeWindowTypeLabel}
+          </span>
+          <span className="text-xs text-slate-400">可由左側窗戶工具子選單切換</span>
           <button
             type="button"
             className="rounded-lg border border-rose-500/30 px-2 py-1.5 text-xs text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-40"
@@ -704,53 +715,65 @@ export default function App() {
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-background-dark text-slate-100">
-      <header className="relative z-40 flex items-center justify-between border-b border-border-dark bg-surface-darker px-6 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
-            <span className="material-symbols-outlined">architecture</span>
-          </div>
-          <div>
-            <h1 className="text-base font-bold">SpatialPlanner</h1>
-            <p className="text-xs text-slate-400">Project: Floorplan Simulation</p>
+      <header className="relative z-50 flex h-10 items-center border-b border-black bg-surface-darker px-4 text-[13px] text-slate-300">
+        <div className="mr-6 flex items-center gap-2 text-white">
+          <span className="material-symbols-outlined text-[20px] text-primary">layers</span>
+          <span className="text-base font-bold tracking-tight">SpatialPlanner</span>
+        </div>
+        <nav className="hidden items-center gap-1 md:flex">
+          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
+            File
+          </button>
+          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
+            Edit
+          </button>
+          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
+            View
+          </button>
+          <button className="cursor-default rounded px-3 py-1 transition-colors hover:bg-white/10">
+            Help
+          </button>
+        </nav>
+        <div className="absolute left-1/2 top-1/2 h-full -translate-x-1/2 -translate-y-1/2">
+          <div className="flex h-full items-center">
+            <div className="segmented-control min-w-[140px]">
+              <div className={`segmented-pill ${activeView === "viewer" ? "viewer" : ""}`} />
+              <button
+                type="button"
+                className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
+                  activeView === "design"
+                    ? "font-bold text-slate-900"
+                    : "font-semibold text-slate-500 hover:text-slate-300"
+                }`}
+                onClick={() => setActiveView("design")}
+              >
+                2D
+              </button>
+              <button
+                type="button"
+                className={`relative z-10 flex-1 px-4 text-[12px] transition-colors ${
+                  activeView === "viewer"
+                    ? "font-bold text-slate-900"
+                    : "font-semibold text-slate-500 hover:text-slate-300"
+                }`}
+                onClick={() => setActiveView("viewer")}
+              >
+                3D
+              </button>
+            </div>
           </div>
         </div>
-        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="pointer-events-auto rounded-lg border border-border-dark bg-surface-dark p-1">
-            <button
-              type="button"
-              className={`rounded px-4 py-1.5 text-sm font-medium transition ${
-                activeView === "design"
-                  ? "bg-primary/20 text-primary"
-                  : "text-slate-400 hover:text-white"
-              }`}
-              onClick={() => setActiveView("design")}
-            >
-              Design
-            </button>
-            <button
-              type="button"
-              className={`rounded px-4 py-1.5 text-sm font-medium transition ${
-                activeView === "viewer"
-                  ? "bg-primary/20 text-primary"
-                  : "text-slate-400 hover:text-white"
-              }`}
-              onClick={() => setActiveView("viewer")}
-            >
-              3D View
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
           <button
             type="button"
-            className="rounded-lg border border-border-dark px-3 py-2 text-sm text-slate-200 transition hover:border-primary hover:text-white"
+            className="rounded px-3 py-1 transition-colors hover:bg-white/10"
             onClick={() => jsonImportInputRef.current?.click()}
           >
             匯入 JSON
           </button>
           <button
             type="button"
-            className="rounded-lg border border-border-dark px-3 py-2 text-sm text-slate-200 transition hover:border-primary hover:text-white"
+            className="rounded bg-primary/90 px-4 py-1 font-semibold text-white transition-all hover:bg-primary"
             onClick={storage.exportJSON}
           >
             匯出 JSON
@@ -759,89 +782,155 @@ export default function App() {
       </header>
 
       {activeView === "design" ? (
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex w-[76px] flex-col items-center border-r border-border-dark bg-surface-darker py-3">
-            {TOOL_ITEMS.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                title={item.label}
-                className={`mb-1 flex h-12 w-12 items-center justify-center rounded-xl transition ${
-                  activeTool === item.key
-                    ? "bg-primary text-white shadow-lg shadow-primary/30"
-                    : "text-slate-400 hover:bg-surface-dark hover:text-white"
-                }`}
-                onClick={() => setActiveTool(item.key)}
-              >
-                <span className="material-symbols-outlined">{item.icon}</span>
-              </button>
-            ))}
-          </aside>
+        <>
+          <div className="z-40 flex h-12 items-center overflow-x-auto border-b border-black bg-surface-dark px-4 text-[13px]">
+            <div className="flex min-w-max items-center gap-4">{contextToolbar}</div>
+          </div>
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <aside
+              ref={toolSidebarRef}
+              className="z-30 flex w-[72px] shrink-0 flex-col items-center border-r border-black bg-surface-dark py-2"
+            >
+              <div className="flex w-full flex-col gap-1 px-1">
+                {TOOL_ITEMS.map((item) => {
+                  const hasVariants = item.key === "wall" || item.key === "window";
+                  const isActive = activeTool === item.key;
 
-          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#0d1218]">
-            <div className="flex min-h-12 items-center gap-3 overflow-x-auto border-b border-border-dark bg-surface-dark px-4">
-              <div className="flex min-w-0 items-center gap-3">{contextToolbar}</div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              <Canvas
-                className="h-full"
-                image={uploadedImage}
-                layerVisibility={layerVisibility}
-                enableSnapping={enableSnapping}
-                showHintBar={showCanvasHint}
-                isCalibrationMode={calibration.isCalibrationMode}
-                measurementPoints={calibration.measurementPoints}
-                scale={calibration.scale}
-                onAddMeasurementPoint={calibration.addMeasurementPoint}
-                isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
-                walls={wallDrawing.walls}
-                polygons={wallDrawing.polygons}
-                selectedWallId={wallDrawing.selectedWallId}
-                currentWall={wallDrawing.currentWall}
-                onBeginWall={wallDrawing.beginWall}
-                onUpdateCurrentWall={wallDrawing.updateCurrentWall}
-                onCompleteCurrentWall={wallDrawing.completeCurrentWall}
-                onSelectWall={(id) => {
-                  wallDrawing.selectWall(id);
-                  if (id) setSelectedFurnitureId(null);
-                }}
-                onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
-                isWindowMode={windowMarking.isWindowMode}
-                windows={windowMarking.windows}
-                selectedWindowId={windowMarking.selectedWindowId}
-                selectedWindowType={windowMarking.selectedType}
-                onAddWindowByOffsets={windowMarking.addWindowByOffsets}
-                onSelectWindow={(id) => {
-                  windowMarking.selectWindow(id);
-                  if (id) setSelectedFurnitureId(null);
-                }}
-                furniture={furniture}
-                selectedFurnitureId={selectedFurnitureId}
-                onSelectFurniture={(id) => {
-                  setSelectedFurnitureId(id);
-                  if (id) {
-                    wallDrawing.selectWall(null);
-                    windowMarking.selectWindow(null);
-                  }
-                }}
-                onMoveFurniture={moveFurniture}
-                onCanvasStatusChange={setCanvasStatus}
-              />
-            </div>
-            <div className="flex h-8 items-center justify-between border-t border-border-dark bg-surface-darker px-4 text-xs text-slate-400">
-              <div className="flex items-center gap-4">
-                <span>
-                  X: {canvasStatus.cursor ? canvasStatus.cursor.x.toFixed(0) : "--"} Y:{" "}
-                  {canvasStatus.cursor ? canvasStatus.cursor.y.toFixed(0) : "--"}
-                </span>
-                <span>Unit: Metric</span>
+                  return (
+                    <div key={item.key} className="relative">
+                      <button
+                        type="button"
+                        title={item.label}
+                        className={`relative flex h-14 w-full items-center justify-center rounded-lg transition-colors ${
+                          isActive
+                            ? "bg-primary text-icon-active shadow-lg"
+                            : "text-icon-inactive hover:bg-white/10 hover:text-icon-active"
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveTool(item.key);
+                          if (hasVariants) {
+                            setOpenToolVariantMenu((previous) =>
+                              previous === item.key ? null : item.key,
+                            );
+                          } else {
+                            setOpenToolVariantMenu(null);
+                          }
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-[28px]">{item.icon}</span>
+                        {hasVariants && (
+                          <span className={`tool-triangle ${isActive ? "active-tool-triangle" : ""}`} />
+                        )}
+                      </button>
+
+                      {item.key === "wall" && openToolVariantMenu === "wall" && (
+                        <div className="flyout-menu absolute left-[76px] top-0 z-50 flex min-w-[210px] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark">
+                          {WALL_DRAW_MODE_OPTIONS.map((option) => {
+                            const selected = wallDrawing.isContinuousMode === option.continuous;
+                            return (
+                              <button
+                                key={option.key}
+                                type="button"
+                                className={`flex items-center gap-3 px-4 py-3 text-left text-[13px] transition ${
+                                  selected ? "bg-primary text-white" : "text-white hover:bg-white/10"
+                                }`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveTool("wall");
+                                  wallDrawing.setContinuousMode(option.continuous);
+                                  setOpenToolVariantMenu(null);
+                                }}
+                              >
+                                <span className="material-symbols-outlined text-[22px]">{option.icon}</span>
+                                <span className="flex-1 font-medium">{option.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {item.key === "window" && openToolVariantMenu === "window" && (
+                        <div className="flyout-menu absolute left-[76px] top-0 z-50 flex min-w-[210px] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark">
+                          {WINDOW_TYPE_OPTIONS.map((option) => {
+                            const selected = windowMarking.selectedType === option.type;
+                            return (
+                              <button
+                                key={option.type}
+                                type="button"
+                                className={`flex items-center gap-3 px-4 py-3 text-left text-[13px] transition ${
+                                  selected ? "bg-primary text-white" : "text-white hover:bg-white/10"
+                                }`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveTool("window");
+                                  windowMarking.setWindowType(option.type);
+                                  setOpenToolVariantMenu(null);
+                                }}
+                              >
+                                <span className="material-symbols-outlined text-[22px]">window</span>
+                                <span className="flex-1 font-medium">{option.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <span className="font-mono">{canvasStatus.zoomPercent}%</span>
-            </div>
+            </aside>
+
+          <section className="relative flex min-w-0 flex-1 overflow-hidden bg-[#0a0a0a]">
+            <div className="pointer-events-none absolute inset-0 bg-grid-pattern opacity-[0.08]" />
+            <Canvas
+              className="relative z-10 h-full w-full"
+              image={uploadedImage}
+              layerVisibility={layerVisibility}
+              enableSnapping={enableSnapping}
+              showHintBar={showCanvasHint}
+              isCalibrationMode={calibration.isCalibrationMode}
+              measurementPoints={calibration.measurementPoints}
+              scale={calibration.scale}
+              onAddMeasurementPoint={calibration.addMeasurementPoint}
+              isDrawingMode={wallDrawing.isDrawingMode && Boolean(calibration.scale)}
+              walls={wallDrawing.walls}
+              polygons={wallDrawing.polygons}
+              selectedWallId={wallDrawing.selectedWallId}
+              currentWall={wallDrawing.currentWall}
+              onBeginWall={wallDrawing.beginWall}
+              onUpdateCurrentWall={wallDrawing.updateCurrentWall}
+              onCompleteCurrentWall={wallDrawing.completeCurrentWall}
+              onSelectWall={(id) => {
+                wallDrawing.selectWall(id);
+                if (id) setSelectedFurnitureId(null);
+              }}
+              onMoveWallEndpoint={wallDrawing.moveWallEndpoint}
+              isWindowMode={windowMarking.isWindowMode}
+              windows={windowMarking.windows}
+              selectedWindowId={windowMarking.selectedWindowId}
+              selectedWindowType={windowMarking.selectedType}
+              onAddWindowByOffsets={windowMarking.addWindowByOffsets}
+              onSelectWindow={(id) => {
+                windowMarking.selectWindow(id);
+                if (id) setSelectedFurnitureId(null);
+              }}
+              furniture={furniture}
+              selectedFurnitureId={selectedFurnitureId}
+              onSelectFurniture={(id) => {
+                setSelectedFurnitureId(id);
+                if (id) {
+                  wallDrawing.selectWall(null);
+                  windowMarking.selectWindow(null);
+                }
+              }}
+              onMoveFurniture={moveFurniture}
+              onCanvasStatusChange={setCanvasStatus}
+            />
 
             {activeTool === "upload" && !uploadedImage && (
               <section
-                className={`absolute left-1/2 top-20 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
+                className={`absolute left-1/2 top-6 z-30 w-[420px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border-dark bg-surface-dark/95 p-4 shadow-panel backdrop-blur ${
                   isImageDragging ? "border-primary" : ""
                 }`}
                 onDrop={onImageDrop}
@@ -873,7 +962,7 @@ export default function App() {
             )}
 
             {activeTool === "furniture" && isFurnitureDrawerOpen && (
-              <aside className="absolute bottom-12 right-4 top-16 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
+              <aside className="absolute bottom-4 right-4 top-4 z-30 w-[380px] overflow-y-auto rounded-xl border border-border-dark bg-surface-darker/95 p-3 shadow-panel backdrop-blur">
                 <FurniturePanel
                   canPlace={Boolean(uploadedImage && calibration.scale)}
                   furnitureCount={furniture.length}
@@ -926,6 +1015,17 @@ export default function App() {
             />
           </section>
         </div>
+        <footer className="z-50 flex h-8 items-center justify-between border-t border-black bg-surface-darker px-4 text-xs text-slate-400">
+          <div className="flex items-center gap-4">
+            <span>
+              X: {canvasStatus.cursor ? canvasStatus.cursor.x.toFixed(0) : "--"} Y:{" "}
+              {canvasStatus.cursor ? canvasStatus.cursor.y.toFixed(0) : "--"}
+            </span>
+            <span>Unit: Metric</span>
+          </div>
+          <span className="font-mono">{canvasStatus.zoomPercent}%</span>
+        </footer>
+      </>
       ) : (
         <div className="min-h-0 flex-1">
           <GeometryPreview

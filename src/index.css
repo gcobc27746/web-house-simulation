@@ -6,7 +6,7 @@
   :root {
     font-family: "Inter", "Segoe UI", sans-serif;
     color: #e2e8f0;
-    background: #101922;
+    background: #121212;
   }
 
   * {
@@ -109,6 +109,60 @@
     @apply min-h-[520px] overflow-hidden rounded-xl border border-border-dark bg-black/20;
   }
 
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, #2a2a2a 1px, transparent 1px),
+      linear-gradient(to bottom, #2a2a2a 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  .tool-triangle {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 0 6px 6px;
+    border-color: transparent transparent #b1b1b1 transparent;
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    pointer-events: none;
+  }
+
+  .active-tool-triangle {
+    border-color: transparent transparent white transparent;
+  }
+
+  .flyout-menu {
+    box-shadow: 12px 0 30px rgba(0, 0, 0, 0.7);
+  }
+
+  .segmented-control {
+    background: #0f0f0f;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 2px;
+    border-radius: 8px;
+    display: flex;
+    position: relative;
+    height: 32px;
+  }
+
+  .segmented-pill {
+    position: absolute;
+    background: #f8fafc;
+    border-radius: 6px;
+    height: calc(100% - 4px);
+    width: calc(50% - 2px);
+    top: 2px;
+    left: 2px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    z-index: 0;
+    transition: transform 180ms ease;
+  }
+
+  .segmented-pill.viewer {
+    transform: translateX(calc(100% + 2px));
+  }
+
   .crosshair {
     position: absolute;
     left: 50%;
@@ -189,12 +243,16 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: #111a22;
+    background: #1a1a1a;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #233648;
+    background: #3c3c3c;
     border-radius: 4px;
+  }
+
+  .canvas-hint {
+    @apply pointer-events-none absolute bottom-4 left-4 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-xs text-slate-200 backdrop-blur-sm;
   }
 }
 

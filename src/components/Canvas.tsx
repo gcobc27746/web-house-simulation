@@ -597,10 +597,8 @@ export function Canvas({
   }, [measurementPoints]);
 
   return (
-    <section className={`panel canvas-panel ${className ?? ""}`.trim()} ref={panelRef}>
-      <h2>2D 畫布</h2>
-      <p>{imageSizeText}</p>
-      <div ref={stageWrapRef} className="mt-3 h-[640px] w-full rounded-xl border border-border-dark bg-[#0d1218]">
+    <section className={`relative h-full w-full overflow-hidden ${className ?? ""}`.trim()} ref={panelRef}>
+      <div ref={stageWrapRef} className="h-full w-full">
         <Stage
           width={viewport.width}
           height={viewport.height}
@@ -630,16 +628,16 @@ export function Canvas({
                 {layerVisibility.image && <KonvaImage image={image} />}
                 {layerVisibility.walls &&
                   pixelPolygons.map((polygon) => (
-                  <Line
-                    key={polygon.id}
-                    points={polygon.vertices.flatMap((vertex) => [vertex.x, vertex.y])}
-                    closed
-                    fill="rgba(51, 113, 255, 0.12)"
-                    stroke="#4b8bff"
-                    strokeWidth={1}
-                    listening={false}
-                  />
-                ))}
+                    <Line
+                      key={polygon.id}
+                      points={polygon.vertices.flatMap((vertex) => [vertex.x, vertex.y])}
+                      closed
+                      fill="rgba(51, 113, 255, 0.12)"
+                      stroke="#4b8bff"
+                      strokeWidth={1}
+                      listening={false}
+                    />
+                  ))}
                 {layerVisibility.walls &&
                   pixelWalls.map((wall) => {
                     const isSelected = selectedWallId === wall.id;
@@ -719,80 +717,80 @@ export function Canvas({
                   })}
                 {layerVisibility.windows &&
                   windowSegments.map((segment) => (
-                  <Line
-                    key={segment.id}
-                    name="window-line"
-                    points={[segment.start.x, segment.start.y, segment.end.x, segment.end.y]}
-                    stroke={segment.selected ? "#ff9f1a" : getWindowColor(segment.type)}
-                    strokeWidth={(segment.selected ? 7 : 5) / transform.scale}
-                    strokeScaleEnabled={false}
-                    lineCap="round"
-                    onMouseDown={(event) => {
-                      event.cancelBubble = true;
-                      onSelectWindow(segment.id);
-                    }}
-                    onClick={(event) => {
-                      event.cancelBubble = true;
-                      onSelectWindow(segment.id);
-                    }}
-                  />
-                ))}
+                    <Line
+                      key={segment.id}
+                      name="window-line"
+                      points={[segment.start.x, segment.start.y, segment.end.x, segment.end.y]}
+                      stroke={segment.selected ? "#ff9f1a" : getWindowColor(segment.type)}
+                      strokeWidth={(segment.selected ? 7 : 5) / transform.scale}
+                      strokeScaleEnabled={false}
+                      lineCap="round"
+                      onMouseDown={(event) => {
+                        event.cancelBubble = true;
+                        onSelectWindow(segment.id);
+                      }}
+                      onClick={(event) => {
+                        event.cancelBubble = true;
+                        onSelectWindow(segment.id);
+                      }}
+                    />
+                  ))}
                 {layerVisibility.furniture &&
                   pixelFurniture.map((item) => (
-                  <Group
-                    key={item.id}
-                    x={item.center.x}
-                    y={item.center.y}
-                    rotation={item.rotationDeg}
-                    draggable={!isWindowMode}
-                    onDragStart={(event) => {
-                      event.cancelBubble = true;
-                      onSelectFurniture(item.id);
-                      onSelectWall(null);
-                      onSelectWindow(null);
-                    }}
-                    onDragEnd={(event) => {
-                      event.cancelBubble = true;
-                      if (!scale) return;
-                      const clamped = clampToImageBounds({
-                        x: event.target.x(),
-                        y: event.target.y(),
-                      });
-                      const meter = pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter);
-                      onMoveFurniture(item.id, meter);
-                    }}
-                  >
-                    <Rect
-                      name="furniture-footprint"
-                      x={-item.widthPx / 2}
-                      y={-item.depthPx / 2}
-                      width={item.widthPx}
-                      height={item.depthPx}
-                      fill={item.selected ? "rgba(255, 153, 0, 0.22)" : "rgba(74, 222, 128, 0.2)"}
-                      stroke={item.selected ? "#ff8a00" : "#4ade80"}
-                      strokeWidth={item.selected ? 2.2 / transform.scale : 1.7 / transform.scale}
-                      strokeScaleEnabled={false}
-                      onMouseDown={() => {
+                    <Group
+                      key={item.id}
+                      x={item.center.x}
+                      y={item.center.y}
+                      rotation={item.rotationDeg}
+                      draggable={!isWindowMode}
+                      onDragStart={(event) => {
+                        event.cancelBubble = true;
                         onSelectFurniture(item.id);
                         onSelectWall(null);
                         onSelectWindow(null);
                       }}
-                      onClick={() => {
-                        onSelectFurniture(item.id);
-                        onSelectWall(null);
-                        onSelectWindow(null);
+                      onDragEnd={(event) => {
+                        event.cancelBubble = true;
+                        if (!scale) return;
+                        const clamped = clampToImageBounds({
+                          x: event.target.x(),
+                          y: event.target.y(),
+                        });
+                        const meter = pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter);
+                        onMoveFurniture(item.id, meter);
                       }}
-                    />
-                    <Line
-                      name="furniture-footprint"
-                      points={[0, 0, 0, -item.depthPx / 2 + 8 / transform.scale]}
-                      stroke={item.selected ? "#ff8a00" : "#22c55e"}
-                      strokeWidth={2 / transform.scale}
-                      strokeScaleEnabled={false}
-                      listening={false}
-                    />
-                  </Group>
-                ))}
+                    >
+                      <Rect
+                        name="furniture-footprint"
+                        x={-item.widthPx / 2}
+                        y={-item.depthPx / 2}
+                        width={item.widthPx}
+                        height={item.depthPx}
+                        fill={item.selected ? "rgba(255, 153, 0, 0.22)" : "rgba(74, 222, 128, 0.2)"}
+                        stroke={item.selected ? "#ff8a00" : "#4ade80"}
+                        strokeWidth={item.selected ? 2.2 / transform.scale : 1.7 / transform.scale}
+                        strokeScaleEnabled={false}
+                        onMouseDown={() => {
+                          onSelectFurniture(item.id);
+                          onSelectWall(null);
+                          onSelectWindow(null);
+                        }}
+                        onClick={() => {
+                          onSelectFurniture(item.id);
+                          onSelectWall(null);
+                          onSelectWindow(null);
+                        }}
+                      />
+                      <Line
+                        name="furniture-footprint"
+                        points={[0, 0, 0, -item.depthPx / 2 + 8 / transform.scale]}
+                        stroke={item.selected ? "#ff8a00" : "#22c55e"}
+                        strokeWidth={2 / transform.scale}
+                        strokeScaleEnabled={false}
+                        listening={false}
+                      />
+                    </Group>
+                  ))}
                 {selectionRect && (
                   <Rect
                     x={selectionRect.x}
@@ -865,17 +863,20 @@ export function Canvas({
       </div>
       {showHintBar && (
         <div className="canvas-hint">
-          {hasImage
-            ? isCalibrationMode
-              ? "校正模式中：請在圖片內點擊兩個量測點。"
-              : isWindowMode
-                ? "窗戶模式中：拖曳框選範圍，若框到牆段會自動截取成窗戶。"
-                : isDrawingMode
-                  ? isTabPanning
-                    ? "Tab 暫時拖曳模式：可拖曳底圖，放開 Tab 回到繪製。"
-                    : "繪製模式中：點擊起點與終點建立牆段，可拖曳端點調整。按住 Tab 可暫時拖曳底圖，按住 Alt 可暫時取消吸附。"
-                  : "Ctrl+滾輪可縮放，滾輪可上下拖曳，Shift+滾輪可左右拖曳。"
-            : "請先上傳圖片。"}
+          <p>
+            {hasImage
+              ? isCalibrationMode
+                ? "校正模式中：請在圖片內點擊兩個量測點。"
+                : isWindowMode
+                  ? "窗戶模式中：拖曳框選範圍，若框到牆段會自動截取成窗戶。"
+                  : isDrawingMode
+                    ? isTabPanning
+                      ? "Tab 暫時拖曳模式：可拖曳底圖，放開 Tab 回到繪製。"
+                      : "繪製模式中：點擊起點與終點建立牆段，可拖曳端點調整。按住 Tab 可暫時拖曳底圖，按住 Alt 可暫時取消吸附。"
+                    : "Ctrl+滾輪可縮放，滾輪可上下拖曳，Shift+滾輪可左右拖曳。"
+              : "請先上傳圖片。"}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400">{imageSizeText}</p>
         </div>
       )}
     </section>
