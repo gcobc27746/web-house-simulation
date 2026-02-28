@@ -29,6 +29,7 @@ const RENDER_BG = 0xf4f7ff;
 const DEFAULT_CANVAS_HEIGHT = 520;
 const PREVIEW_CAMERA_POSITION = new THREE.Vector3(8, 7, 8);
 const MINIMAP_VIEWBOX_SIZE = 200;
+const JOYSTICK_MAX_RADIUS = 36;
 
 interface MinimapBounds {
   minX: number;
@@ -155,6 +156,10 @@ export function GeometryPreview({
   const measureLabelRefs = useRef(new Map<string, HTMLDivElement>());
   const isMeasureModeRef = useRef(false);
   const pointerDownClientRef = useRef<{ x: number; y: number } | null>(null);
+  const joystickTouchIdRef = useRef<number | null>(null);
+  const joystickOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const lookTouchIdRef = useRef<number | null>(null);
+  const lookTouchLastRef = useRef<{ x: number; y: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [isFirstPersonMode, setIsFirstPersonMode] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
@@ -163,8 +168,8 @@ export function GeometryPreview({
   const [isMeasureMode, setIsMeasureMode] = useState(false);
   const [measureHasActive, setMeasureHasActive] = useState(false);
   const [measureSegments, setMeasureSegments] = useState<MeasureSegmentDisplay[]>([]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [joystickThumb, setJoystickThumb] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const minimapBounds = useMemo<MinimapBounds>(() => {
     const walls = floorplanData.walls ?? [];
@@ -282,6 +287,7 @@ export function GeometryPreview({
     const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 2000);
     camera.position.copy(PREVIEW_CAMERA_POSITION);
     camera.lookAt(previewLookAtRef.current);
+    camera.rotation.order = 'YXZ';
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -320,9 +326,12 @@ export function GeometryPreview({
       setIsPointerLocked(true);
     };
     const onControlUnlock = () => {
+      const wasLocked = isPointerLockedRef.current;
       isPointerLockedRef.current = false;
       setIsPointerLocked(false);
-      if (isFirstPersonModeRef.current) {
+      // Only auto-exit first-person if pointer lock was actually acquired.
+      // On mobile, lock() always fails silently so wasLocked stays false.
+      if (wasLocked && isFirstPersonModeRef.current) {
         isFirstPersonModeRef.current = false;
         setIsFirstPersonMode(false);
       }
@@ -449,6 +458,46 @@ export function GeometryPreview({
       }
     };
 
+    // Touch look control for first-person mode on mobile (no pointer lock available)
+    const onTouchLookStart = (event: TouchEvent) => {
+      if (!isFirstPersonModeRef.current) return;
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        const t = event.changedTouches[i];
+        if (lookTouchIdRef.current === null) {
+          lookTouchIdRef.current = t.identifier;
+          lookTouchLastRef.current = { x: t.clientX, y: t.clientY };
+        }
+      }
+    };
+    const onTouchLookMove = (event: TouchEvent) => {
+      if (!isFirstPersonModeRef.current || lookTouchIdRef.current === null) return;
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        const t = event.changedTouches[i];
+        if (t.identifier !== lookTouchIdRef.current) continue;
+        const last = lookTouchLastRef.current;
+        if (!last) break;
+        const dx = t.clientX - last.x;
+        const dy = t.clientY - last.y;
+        lookTouchLastRef.current = { x: t.clientX, y: t.clientY };
+        const sensitivity = lookSensitivity * 0.004;
+        camera.rotation.y -= dx * sensitivity;
+        camera.rotation.x -= dy * sensitivity;
+        camera.rotation.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, camera.rotation.x));
+        break;
+      }
+    };
+    const onTouchLookEnd = (event: TouchEvent) => {
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        if (event.changedTouches[i].identifier === lookTouchIdRef.current) {
+          lookTouchIdRef.current = null;
+          lookTouchLastRef.current = null;
+        }
+      }
+    };
+    renderer.domElement.addEventListener("touchstart", onTouchLookStart, { passive: true });
+    renderer.domElement.addEventListener("touchmove", onTouchLookMove, { passive: true });
+    renderer.domElement.addEventListener("touchend", onTouchLookEnd, { passive: true });
+
     renderer.domElement.addEventListener("pointerdown", onMeasurePointerDown);
     renderer.domElement.addEventListener("pointerup", onMeasurePointerUp);
 
@@ -476,13 +525,13 @@ export function GeometryPreview({
       const delta = previous === null ? 0 : (timestamp - previous) / 1000;
       previousTimestampRef.current = timestamp;
 
-      if (
-        delta > 0 &&
-        isFirstPersonModeRef.current &&
-        isPointerLockedRef.current &&
-        controlsRef.current
-      ) {
-        controlsRef.current.getDirection(worldForward);
+      if (delta > 0 && isFirstPersonModeRef.current) {
+        // On desktop, use PointerLockControls direction; on mobile use camera direction
+        if (isPointerLockedRef.current && controlsRef.current) {
+          controlsRef.current.getDirection(worldForward);
+        } else {
+          camera.getWorldDirection(worldForward);
+        }
         worldForward.y = 0;
         if (worldForward.lengthSq() > 0) {
           worldForward.normalize();
@@ -617,11 +666,14 @@ export function GeometryPreview({
       previousTimestampRef.current = null;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      renderer.domElement.removeEventListener("touchstart", onTouchLookStart);
+      renderer.domElement.removeEventListener("touchmove", onTouchLookMove);
+      renderer.domElement.removeEventListener("touchend", onTouchLookEnd);
       renderer.domElement.removeEventListener("pointerdown", onMeasurePointerDown);
       renderer.domElement.removeEventListener("pointerup", onMeasurePointerUp);
       controls.removeEventListener("lock", onControlLock);
       controls.removeEventListener("unlock", onControlUnlock);
-      controls.unlock();
+      try { controls.unlock(); } catch { /* Pointer Lock API not supported on iOS Safari */ }
       orbitControls.dispose();
       resizeObserver.disconnect();
       contentRoot.traverse(disposeObject3D);
@@ -759,11 +811,18 @@ export function GeometryPreview({
       setIsCollisionHit(false);
       resetToPreviewCamera();
       if (controlsRef.current?.isLocked) {
-        controlsRef.current.unlock();
+        try { controlsRef.current.unlock(); } catch { /* Pointer Lock API not supported on iOS Safari */ }
       }
       if (orbitControlsRef.current) {
         orbitControlsRef.current.enabled = true;
       }
+      // Reset joystick + look touch state
+      joystickTouchIdRef.current = null;
+      joystickOriginRef.current = null;
+      lookTouchIdRef.current = null;
+      lookTouchLastRef.current = null;
+      setJoystickThumb({ x: 0, y: 0 });
+      keyStateRef.current = { forward: false, backward: false, left: false, right: false };
     }
     renderScene();
   }, [cameraHeight, isFirstPersonMode]);
@@ -882,12 +941,6 @@ export function GeometryPreview({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMeasureMode]);
 
-  // Fullscreen change listener
-  useEffect(() => {
-    const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
 
   const handleScreenshot = () => {
     const renderer = rendererRef.current;
@@ -949,16 +1002,6 @@ export function GeometryPreview({
     document.body.removeChild(anchor);
   };
 
-  const handleToggleFullscreen = () => {
-    const container = mountRef.current?.closest("section") ?? mountRef.current?.parentElement;
-    if (!container) return;
-    if (!document.fullscreenElement) {
-      void container.requestFullscreen();
-    } else {
-      void document.exitFullscreen();
-    }
-  };
-
   const onToggleFirstPersonMode = () => {
     const controls = controlsRef.current;
     if (!controls) return;
@@ -966,14 +1009,14 @@ export function GeometryPreview({
     if (isFirstPersonModeRef.current) {
       isFirstPersonModeRef.current = false;
       setIsFirstPersonMode(false);
-      controls.unlock();
+      try { controls.unlock(); } catch { /* Pointer Lock API not supported on iOS Safari */ }
       return;
     }
 
     isFirstPersonModeRef.current = true;
     setIsFirstPersonMode(true);
     resetFirstPersonPose();
-    controls.lock();
+    try { controls.lock(); } catch { /* Pointer Lock API not supported on iOS Safari */ }
   };
 
   const onResetView = () => {
@@ -983,6 +1026,54 @@ export function GeometryPreview({
       resetToPreviewCamera();
     }
     renderScene();
+  };
+
+  const handleJoystickTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (joystickTouchIdRef.current !== null) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    joystickTouchIdRef.current = touch.identifier;
+    joystickOriginRef.current = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  };
+
+  const handleJoystickTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (joystickTouchIdRef.current === null || !joystickOriginRef.current) return;
+    e.stopPropagation();
+    const touch = Array.from(e.changedTouches).find(
+      (t) => t.identifier === joystickTouchIdRef.current,
+    );
+    if (!touch) return;
+    const origin = joystickOriginRef.current;
+    let dx = touch.clientX - origin.x;
+    let dy = touch.clientY - origin.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > JOYSTICK_MAX_RADIUS) {
+      dx = (dx / dist) * JOYSTICK_MAX_RADIUS;
+      dy = (dy / dist) * JOYSTICK_MAX_RADIUS;
+    }
+    setJoystickThumb({ x: dx, y: dy });
+    const threshold = JOYSTICK_MAX_RADIUS * 0.2;
+    keyStateRef.current.forward = dy < -threshold;
+    keyStateRef.current.backward = dy > threshold;
+    keyStateRef.current.left = dx < -threshold;
+    keyStateRef.current.right = dx > threshold;
+  };
+
+  const handleJoystickTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchIdRef.current) {
+        joystickTouchIdRef.current = null;
+        joystickOriginRef.current = null;
+        setJoystickThumb({ x: 0, y: 0 });
+        keyStateRef.current.forward = false;
+        keyStateRef.current.backward = false;
+        keyStateRef.current.left = false;
+        keyStateRef.current.right = false;
+        break;
+      }
+    }
   };
 
   return (
@@ -1161,7 +1252,7 @@ export function GeometryPreview({
           <span className="material-symbols-outlined">settings</span>
         </button>
 
-        <div className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white backdrop-blur-md">
+        <div className="pointer-events-none absolute left-1/2 top-6 hidden -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white backdrop-blur-md md:flex md:items-center">
           {isFirstPersonMode
             ? isPointerLocked
               ? "滑鼠已鎖定，使用 WASD 進行移動"
@@ -1180,24 +1271,43 @@ export function GeometryPreview({
           <p className="text-center text-[10px] text-slate-300">Move / Look Around / ESC</p>
         </div>
 
-        {/* Mobile touch hint */}
-        <div className="pointer-events-none absolute bottom-5 left-4 rounded-2xl border border-white/10 bg-black/75 px-3 py-2 text-white backdrop-blur-md md:hidden">
-          <div className="flex items-start gap-3 text-[10px] leading-tight">
-            <span className="flex flex-col items-center gap-0.5">
-              <span className="material-symbols-outlined text-[16px] text-slate-300">touch_app</span>
-              <span className="text-center">單指<br />旋轉</span>
-            </span>
-            <span className="mt-1 text-white/30">│</span>
-            <span className="flex flex-col items-center gap-0.5">
-              <span className="material-symbols-outlined text-[16px] text-slate-300">pan_tool</span>
-              <span className="text-center">雙指<br />平移</span>
-            </span>
-            <span className="mt-1 text-white/30">│</span>
-            <span className="flex flex-col items-center gap-0.5">
-              <span className="material-symbols-outlined text-[16px] text-slate-300">pinch</span>
-              <span className="text-center">雙指<br />縮放</span>
-            </span>
-          </div>
+        {/* Mobile bottom-left: virtual joystick (first-person) or touch hints (orbit) */}
+        <div className="absolute bottom-5 left-4 z-20 md:hidden">
+          {isFirstPersonMode ? (
+            <div
+              className="touch-none select-none"
+              onTouchStart={handleJoystickTouchStart}
+              onTouchMove={handleJoystickTouchMove}
+              onTouchEnd={handleJoystickTouchEnd}
+            >
+              <div className="relative flex h-[90px] w-[90px] items-center justify-center rounded-full border-2 border-white/25 bg-black/50 backdrop-blur-sm">
+                <div
+                  className="absolute h-[42px] w-[42px] rounded-full bg-white/40 shadow-lg"
+                  style={{ transform: `translate(${joystickThumb.x}px, ${joystickThumb.y}px)` }}
+                />
+              </div>
+              <p className="mt-1 text-center text-[10px] text-white/50">拖曳移動</p>
+            </div>
+          ) : (
+            <div className="pointer-events-none rounded-2xl border border-white/10 bg-black/75 px-3 py-2 text-white backdrop-blur-md">
+              <div className="flex items-start gap-3 text-[10px] leading-tight">
+                <span className="flex flex-col items-center gap-0.5">
+                  <span className="material-symbols-outlined text-[16px] text-slate-300">touch_app</span>
+                  <span className="text-center">單指<br />旋轉</span>
+                </span>
+                <span className="mt-1 text-white/30">│</span>
+                <span className="flex flex-col items-center gap-0.5">
+                  <span className="material-symbols-outlined text-[16px] text-slate-300">pan_tool</span>
+                  <span className="text-center">雙指<br />平移</span>
+                </span>
+                <span className="mt-1 text-white/30">│</span>
+                <span className="flex flex-col items-center gap-0.5">
+                  <span className="material-symbols-outlined text-[16px] text-slate-300">pinch</span>
+                  <span className="text-center">雙指<br />縮放</span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="absolute bottom-6 right-6 w-28 rounded-xl border border-border-dark bg-surface-dark/95 p-2 shadow-panel backdrop-blur-xl md:w-56 md:p-3">

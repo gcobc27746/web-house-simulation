@@ -1042,8 +1042,10 @@ export default function App() {
         </div>
       </header>
 
-      {activeView === "design" ? (
-        <>
+      {/* Outer wrapper: design view always in DOM + 3D viewer as absolute overlay */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Design view - visibility:hidden (not display:none) preserves canvas GPU context on mobile */}
+        <div className={`flex min-h-0 flex-1 flex-col${activeView === "viewer" ? " invisible pointer-events-none" : ""}`}>
           <div className="z-40 flex h-12 items-center overflow-x-auto border-b border-black bg-surface-dark px-4 text-[13px]">
             <div className="flex min-w-max items-center gap-4">{contextToolbar}</div>
           </div>
@@ -1315,10 +1317,10 @@ export default function App() {
           </div>
           <span className="font-mono">{canvasStatus.zoomPercent}%</span>
         </footer>
-      </>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <GeometryPreview
+        </div>
+        {activeView === "viewer" && (
+          <div className="absolute inset-0 z-10 flex flex-col">
+            <GeometryPreview
             floorplanData={floorplanData}
             ceilingHeight={ceilingHeight}
             wallThickness={wallThickness}
@@ -1335,8 +1337,9 @@ export default function App() {
             onCollisionRadiusChange={setCollisionRadius}
             onShowCollisionDebugChange={setShowCollisionDebug}
           />
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       <input
         ref={jsonImportInputRef}
