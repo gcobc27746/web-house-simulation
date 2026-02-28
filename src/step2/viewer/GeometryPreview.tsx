@@ -164,6 +164,7 @@ export function GeometryPreview({
   const [measureHasActive, setMeasureHasActive] = useState(false);
   const [measureSegments, setMeasureSegments] = useState<MeasureSegmentDisplay[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const minimapBounds = useMemo<MinimapBounds>(() => {
     const walls = floorplanData.walls ?? [];
@@ -282,7 +283,7 @@ export function GeometryPreview({
     camera.position.copy(PREVIEW_CAMERA_POSITION);
     camera.lookAt(previewLookAtRef.current);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
 
@@ -633,6 +634,10 @@ export function GeometryPreview({
         mountElement.removeChild(renderer.domElement);
       }
       renderer.dispose();
+      // Explicitly release the WebGL context after disposing so mobile browsers
+      // (iOS Safari has a hard cap of ~8 contexts) can reuse it immediately.
+      const loseCtx = renderer.getContext().getExtension("WEBGL_lose_context");
+      if (loseCtx) loseCtx.loseContext();
 
       sceneRef.current = null;
       cameraRef.current = null;
@@ -981,11 +986,33 @@ export function GeometryPreview({
   };
 
   return (
-    <section className="flex h-full min-h-0 bg-background-dark">
-      <aside className="custom-scrollbar w-80 shrink-0 overflow-y-auto border-r border-border-dark bg-surface-dark p-5">
-        <div className="mb-5">
-          <h3 className="mb-1 text-xl font-bold text-white">View Settings</h3>
-          <p className="text-sm text-slate-400">調整 3D 空間與相機參數</p>
+    <section className="relative flex min-h-0 flex-1 bg-background-dark">
+      {/* Mobile backdrop */}
+      {isSidebarOpen && (
+        <div
+          className="absolute inset-0 z-20 bg-black/60 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`custom-scrollbar absolute inset-y-0 left-0 z-30 w-80 shrink-0 overflow-y-auto border-r border-border-dark bg-surface-dark p-5 transition-transform duration-200 ease-in-out md:relative md:inset-auto md:z-auto md:translate-x-0 ${
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="mb-5 flex items-start justify-between">
+          <div>
+            <h3 className="mb-1 text-xl font-bold text-white">View Settings</h3>
+            <p className="text-sm text-slate-400">調整 3D 空間與相機參數</p>
+          </div>
+          <button
+            type="button"
+            aria-label="關閉設定"
+            onClick={() => setIsSidebarOpen(false)}
+            className="ml-2 rounded-lg p-1 text-slate-400 transition hover:bg-white/10 hover:text-white md:hidden"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
         </div>
 
         <div className="space-y-4">
@@ -1123,6 +1150,16 @@ export function GeometryPreview({
 
       <main className="relative min-w-0 flex-1 overflow-hidden bg-[#0f1115]">
         <div ref={mountRef} className="geometry-canvas h-full w-full" />
+
+        {/* Mobile settings toggle */}
+        <button
+          type="button"
+          className="absolute left-4 top-4 z-10 flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white md:hidden"
+          title="View Settings"
+          onClick={() => setIsSidebarOpen(true)}
+        >
+          <span className="material-symbols-outlined">settings</span>
+        </button>
 
         <div className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white backdrop-blur-md">
           {isFirstPersonMode

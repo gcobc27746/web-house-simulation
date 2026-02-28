@@ -1317,7 +1317,7 @@ export default function App() {
         </footer>
       </>
       ) : (
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           <GeometryPreview
             floorplanData={floorplanData}
             ceilingHeight={ceilingHeight}
