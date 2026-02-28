@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG 房屋元數據編輯器 - 專業版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto space-y-6">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-slate-800 tracking-tight">🏠 PNG 房屋元數據工具</h1>
+            <p class="text-slate-500 mt-2">支援自動讀取、編輯與回寫房屋物件數據</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- 輸入區 -->
+            <div class="space-y-6">
+                <div class="glass p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center text-slate-700">
+                        <span class="w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center mr-3 text-sm">1</span>
+                        選擇房屋照片
+                    </h2>
+                    <input type="file" id="houseImageInput" accept="image/png" onchange="handleHouseImport()" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                    
+                    <div id="houseImportStatus" class="mt-4 hidden p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700 font-medium">
+                        <!-- 自動填寫匯入狀態 -->
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center text-slate-700">
+                        <span class="w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center mr-3 text-sm">2</span>
+                        編輯房屋數據 (JSON)
+                    </h2>
+                    <textarea id="houseJsonData" class="w-full h-48 p-3 border border-slate-300 rounded-xl font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none mb-4" spellcheck="false" placeholder='例如: {"title": "極簡風公寓", "price": 1500, "area": 32}'></textarea>
+                    
+                    <div class="flex flex-col space-y-3">
+                        <label class="flex items-center cursor-pointer group">
+                            <input type="checkbox" id="useBase64Encoding" checked class="w-4 h-4 text-indigo-600 rounded">
+                            <span class="ml-3 text-sm text-slate-600 group-hover:text-slate-900 transition">使用 Base64 編碼 (確保資料完整性)</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer group">
+                            <input type="checkbox" id="forceNormalizeImage" class="w-4 h-4 text-indigo-600 rounded">
+                            <span class="ml-3 text-sm text-slate-600 group-hover:text-slate-900 transition font-medium text-indigo-600">強制重新渲染圖片 (修復圖檔格式)</span>
+                        </label>
+                    </div>
+
+                    <button onclick="handleGenerateHouseCard()" class="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-indigo-200 active:scale-[0.98]">
+                        生成並校準房屋資訊卡
+                    </button>
+                </div>
+            </div>
+
+            <!-- 預覽/下載區 -->
+            <div class="glass p-8 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center">
+                <h2 class="text-lg font-semibold mb-6 self-start text-slate-700">3. 房屋卡預覽與輸出</h2>
+                
+                <div id="housePreviewBox" class="w-full aspect-square max-w-[400px] flex items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 relative overflow-hidden mb-6">
+                    <p id="housePlaceholderText" class="text-slate-400 px-8 text-center">生成後的房屋資訊圖將顯示在此處</p>
+                    <img id="houseOutputImage" class="max-h-full max-w-full hidden z-10 shadow-lg">
+                </div>
+
+                <div id="houseResultStatus" class="w-full space-y-4 hidden">
+                    <div class="flex items-center justify-center p-3 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100 text-sm font-semibold">
+                        ✅ 處理成功！房屋數據已嵌入照片。
+                    </div>
+                    
+                    <a id="houseDownloadBtn" class="block w-full text-center bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl transition shadow-xl">
+                        下載房屋資訊卡 (.png)
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CRC32 計算 ---
+        const crcTable = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+            let c = i;
+            for (let j = 0; j < 8; j++) {
+                c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            }
+            crcTable[i] = c;
+        }
+
+        function calculateCRC(data) {
+            let crc = 0xFFFFFFFF;
+            for (let i = 0; i < data.length; i++) {
+                crc = (crc >>> 8) ^ crcTable[(crc ^ data[i]) & 0xFF];
+            }
+            return (crc ^ 0xFFFFFFFF) >>> 0;
+        }
+
+        /**
+         * 房屋數據匯入功能
+         */
+        async function handleHouseImport() {
+            const imageInput = document.getElementById('houseImageInput');
+            const statusBox = document.getElementById('houseImportStatus');
+            const jsonDataField = document.getElementById('houseJsonData');
+            
+            if (!imageInput.files.length) return;
+            const houseFile = imageInput.files[0];
+
+            try {
+                // 使用 'house_data' 作為 Metadata Key
+                let rawMetadata = await readPngMetadata(houseFile, 'house_data');
+                
+                if (rawMetadata) {
+                    let decodedMetadata = rawMetadata;
+                    if (document.getElementById('useBase64Encoding').checked) {
+                        try {
+                            decodedMetadata = decodeURIComponent(escape(atob(rawMetadata)));
+                        } catch(e) {
+                            console.log("嘗試解碼失敗，可能為純文字格式");
+                        }
+                    }
+
+                    try {
+                        const houseObj = JSON.parse(decodedMetadata);
+                        jsonDataField.value = JSON.stringify(houseObj, null, 2);
+                        statusBox.innerHTML = `🏠 偵測到物件資訊：<b>${houseObj.title || '未命名物件'}</b> 已成功載入。`;
+                    } catch(e) {
+                        jsonDataField.value = decodedMetadata;
+                        statusBox.innerHTML = `🏠 偵測到現有數據，已載入原始文字內容。`;
+                    }
+                    statusBox.classList.remove('hidden');
+                } else {
+                    jsonDataField.value = "";
+                    statusBox.innerHTML = `ℹ️ 此照片不含房屋元數據，已清空編輯區。`;
+                    statusBox.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error("解析失敗", err);
+                jsonDataField.value = "";
+                statusBox.innerHTML = `❌ 讀取照片時發生錯誤。`;
+                statusBox.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * 讀取 PNG tEXt Chunk 數據
+         */
+        async function readPngMetadata(blob, targetKey) {
+            const buffer = await blob.arrayBuffer();
+            const data = new Uint8Array(buffer);
+            const view = new DataView(buffer);
+            let offset = 8;
+            while (offset < data.length - 8) {
+                const chunkLen = view.getUint32(offset);
+                const chunkType = new TextDecoder().decode(data.slice(offset + 4, offset + 8));
+                if (chunkType === 'tEXt') {
+                    const chunkContent = data.slice(offset + 8, offset + 8 + chunkLen);
+                    const nullSeparatorIdx = chunkContent.indexOf(0);
+                    const currentKey = new TextDecoder().decode(chunkContent.slice(0, nullSeparatorIdx));
+                    if (currentKey === targetKey) return new TextDecoder().decode(chunkContent.slice(nullSeparatorIdx + 1));
+                }
+                offset += 12 + chunkLen;
+            }
+            return null;
+        }
+
+        /**
+         * 圖片正規化處理 (修復非標準 PNG)
+         */
+        async function normalizeImageSource(blob) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob(resolve, 'image/png');
+                };
+                img.src = URL.createObjectURL(blob);
+            });
+        }
+
+        /**
+         * 將元數據注入 PNG
+         */
+        async function injectPngMetadata(blob, key, value) {
+            const buffer = await blob.arrayBuffer();
+            const originalBytes = new Uint8Array(buffer);
+            const view = new DataView(buffer);
+            const chunkList = [];
+            let offset = 8;
+
+            while (offset < originalBytes.length) {
+                const chunkLen = view.getUint32(offset);
+                const chunkType = new TextDecoder().decode(originalBytes.slice(offset + 4, offset + 8));
+                const totalChunkLen = 8 + chunkLen + 4;
+                chunkList.push({ type: chunkType, data: originalBytes.slice(offset, offset + totalChunkLen) });
+                offset += totalChunkLen;
+                if (chunkType === 'IEND') break;
+            }
+
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(key);
+            const valBytes = encoder.encode(value);
+            const textChunkBody = new Uint8Array(keyBytes.length + 1 + valBytes.length);
+            textChunkBody.set(keyBytes); 
+            textChunkBody.set([0], keyBytes.length); 
+            textChunkBody.set(valBytes, keyBytes.length + 1);
+
+            const finalChunk = new Uint8Array(12 + textChunkBody.length);
+            const finalView = new DataView(finalChunk.buffer);
+            finalView.setUint32(0, textChunkBody.length);
+            finalChunk.set(encoder.encode('tEXt'), 4);
+            finalChunk.set(textChunkBody, 8);
+            
+            const crcBase = new Uint8Array(4 + textChunkBody.length);
+            crcBase.set(encoder.encode('tEXt')); 
+            crcBase.set(textChunkBody, 4);
+            finalView.setUint32(8 + textChunkBody.length, calculateCRC(crcBase));
+
+            const finalBufferParts = [originalBytes.slice(0, 8), chunkList[0].data, finalChunk];
+            for (let i = 1; i < chunkList.length; i++) finalBufferParts.push(chunkList[i].data);
+            return new Blob(finalBufferParts, { type: 'image/png' });
+        }
+
+        /**
+         * 處理生成與校準流程
+         */
+        async function handleGenerateHouseCard() {
+            const imageFile = document.getElementById('houseImageInput').files[0];
+            if (!imageFile) return alert("請先選取房屋照片");
+            let houseJsonText = document.getElementById('houseJsonData').value.trim();
+
+            try {
+                if (houseJsonText) {
+                    try { JSON.parse(houseJsonText); } catch(e) { return alert("JSON 數據格式不正確"); }
+                }
+
+                let finalBlob = imageFile;
+                if (document.getElementById('forceNormalizeImage').checked) finalBlob = await normalizeImageSource(imageFile);
+                
+                let metadataToEmbed = houseJsonText;
+                if (document.getElementById('useBase64Encoding').checked && houseJsonText) {
+                    metadataToEmbed = btoa(unescape(encodeURIComponent(houseJsonText)));
+                }
+
+                const resultBlob = await injectPngMetadata(finalBlob, 'house_data', metadataToEmbed);
+                const resultUrl = URL.createObjectURL(resultBlob);
+                
+                const outputImg = document.getElementById('houseOutputImage');
+                outputImg.src = resultUrl;
+                outputImg.classList.remove('hidden');
+                document.getElementById('housePlaceholderText').classList.add('hidden');
+                document.getElementById('houseResultStatus').classList.remove('hidden');
+                
+                const dlBtn = document.getElementById('houseDownloadBtn');
+                dlBtn.href = resultUrl;
+                dlBtn.download = "house_info_card.png";
+            } catch (err) {
+                alert("作業失敗：" + err.message);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useSta
 import { Canvas } from "./components/Canvas";
 import { DistanceInputDialog } from "./components/DistanceInputDialog";
 import { FurniturePanel } from "./components/FurniturePanel";
+import { type GalleryLoadResult, HouseGalleryModal } from "./components/HouseGalleryModal";
 import { getFurnitureCatalogItem } from "./furniture/catalog";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { type LoadedImagePayload, useImageUpload } from "./hooks/useImageUpload";
@@ -16,6 +17,7 @@ import type {
   Point2D,
   WindowType,
 } from "./types/floorplan";
+import { encodeHouseData, injectPngMetadata } from "./utils/pngMetadata";
 
 const CONTINUOUS_WALL_ICON = new URL("../resources/icons/continuous-wall.svg", import.meta.url).href;
 const SINGLE_SECTION_WALL_ICON = new URL(
@@ -167,6 +169,7 @@ export default function App() {
     DEFAULT_LAYER_VISIBILITY,
   );
   const [isDevJsonVisible, setIsDevJsonVisible] = useState(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [furniture, setFurniture] = useState<FurnitureItem[]>([]);
   const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
   const [canvasStatus, setCanvasStatus] = useState<{
@@ -208,6 +211,76 @@ export default function App() {
   );
 
   const storage = useFloorplanStorage(floorplanData, applyLoadedData);
+
+  const handleGallerySelect = useCallback(
+    (result: GalleryLoadResult) => {
+      calibration.stopCalibrationMode();
+      wallDrawing.cancelCurrentWall();
+      wallDrawing.stopDrawing();
+      windowMarking.stopWindowMode();
+      windowMarking.cancelDraft();
+      setIsDistanceDialogOpen(false);
+
+      if (result.floorplanData) {
+        const dataWithImage: FloorplanData = {
+          ...result.floorplanData,
+          image: { width: result.width, height: result.height, filename: result.filename },
+          meta: { ...result.floorplanData.meta, updatedAt: nowIso() },
+        };
+        setFloorplanData(dataWithImage);
+        calibration.hydrateScale(dataWithImage.scale ?? null);
+        wallDrawing.hydrateWalls(dataWithImage.walls);
+        windowMarking.hydrateWindows(dataWithImage.windows ?? []);
+        setFurniture(dataWithImage.furniture ?? []);
+        setSelectedFurnitureId(null);
+      } else {
+        setFloorplanData((previous) => ({
+          ...previous,
+          image: { width: result.width, height: result.height, filename: result.filename },
+          meta: { ...previous.meta, updatedAt: nowIso() },
+        }));
+      }
+
+      setUploadedImage(result.image);
+      setIsGalleryOpen(false);
+    },
+    [calibration, wallDrawing, windowMarking],
+  );
+
+  const handleExportMetadataPhoto = useCallback(async () => {
+    if (!uploadedImage) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = uploadedImage.naturalWidth;
+    canvas.height = uploadedImage.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(uploadedImage, 0, 0);
+
+    const sourceBlob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+    if (!sourceBlob) return;
+
+    const encoded = encodeHouseData(JSON.stringify(floorplanData));
+    const resultBlob = await injectPngMetadata(sourceBlob, "house_data", encoded);
+
+    const originalName = floorplanData.image?.filename ?? "floorplan.png";
+    const dotIdx = originalName.lastIndexOf(".");
+    const baseName = dotIdx > 0 ? originalName.slice(0, dotIdx) : originalName;
+    const ext = dotIdx > 0 ? originalName.slice(dotIdx) : ".png";
+    const downloadName = `${baseName}_m${ext}`;
+
+    const url = URL.createObjectURL(resultBlob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = downloadName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    setOpenTopMenu(null);
+  }, [uploadedImage, floorplanData]);
 
   const handleClearLocalData = useCallback(() => {
     const confirmed = window.confirm("確定要清除本地資料嗎？此動作無法復原。");
@@ -762,6 +835,16 @@ export default function App() {
                 >
                   匯出 JSON
                 </button>
+                <button
+                  type="button"
+                  className={topMenuItemClass}
+                  disabled={!uploadedImage}
+                  onClick={() => {
+                    void handleExportMetadataPhoto();
+                  }}
+                >
+                  匯出元數據照片
+                </button>
                 <div className="my-1 h-px bg-white/10" />
                 <button
                   type="button"
@@ -969,7 +1052,7 @@ export default function App() {
               ref={toolSidebarRef}
               className="z-30 flex w-[72px] shrink-0 flex-col items-center border-r border-black bg-surface-dark py-2"
             >
-              <div className="flex w-full flex-col gap-1 px-1">
+              <div className="flex w-full flex-col gap-1 px-1 pb-1">
                 {TOOL_ITEMS.map((item) => {
                   const hasVariants = item.key === "wall" || item.key === "window";
                   const isActive = activeTool === item.key;
@@ -1073,6 +1156,18 @@ export default function App() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Gallery button at the bottom of the sidebar */}
+              <div className="mt-auto flex w-full flex-col gap-1 border-t border-black px-1 pt-1">
+                <button
+                  type="button"
+                  title="房屋圖庫"
+                  className="flex h-14 w-full items-center justify-center rounded-lg text-icon-inactive transition-colors hover:bg-white/10 hover:text-icon-active"
+                  onClick={() => setIsGalleryOpen(true)}
+                >
+                  <span className="material-symbols-outlined text-[28px]">home</span>
+                </button>
               </div>
             </aside>
 
@@ -1256,6 +1351,12 @@ export default function App() {
         pixelDistance={measurementDistancePx}
         onConfirm={onConfirmDistance}
         onCancel={onCancelDistance}
+      />
+
+      <HouseGalleryModal
+        isOpen={isGalleryOpen}
+        onClose={() => setIsGalleryOpen(false)}
+        onSelect={handleGallerySelect}
       />
     </main>
   );
