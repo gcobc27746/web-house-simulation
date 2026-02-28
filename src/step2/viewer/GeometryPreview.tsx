@@ -1169,7 +1169,8 @@ export function GeometryPreview({
             : "滑鼠拖曳旋轉/縮放視角，使用 WASD 水平移動"}
         </div>
 
-        <div className="pointer-events-none absolute bottom-7 left-1/2 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/75 px-4 py-3 text-xs text-white backdrop-blur-md">
+        {/* Desktop WASD hint */}
+        <div className="pointer-events-none absolute bottom-7 left-1/2 hidden -translate-x-1/2 rounded-2xl border border-white/10 bg-black/75 px-4 py-3 text-xs text-white backdrop-blur-md md:block">
           <div className="mb-1 flex items-center justify-center gap-2">
             <span className="rounded border border-white/30 px-2 py-0.5">W</span>
             <span className="rounded border border-white/30 px-2 py-0.5">A</span>
@@ -1179,18 +1180,38 @@ export function GeometryPreview({
           <p className="text-center text-[10px] text-slate-300">Move / Look Around / ESC</p>
         </div>
 
-        <div className="absolute bottom-6 right-6 w-56 rounded-xl border border-border-dark bg-surface-dark/95 p-3 shadow-panel backdrop-blur-xl">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-white">Floor Plan</span>
+        {/* Mobile touch hint */}
+        <div className="pointer-events-none absolute bottom-5 left-4 rounded-2xl border border-white/10 bg-black/75 px-3 py-2 text-white backdrop-blur-md md:hidden">
+          <div className="flex items-start gap-3 text-[10px] leading-tight">
+            <span className="flex flex-col items-center gap-0.5">
+              <span className="material-symbols-outlined text-[16px] text-slate-300">touch_app</span>
+              <span className="text-center">單指<br />旋轉</span>
+            </span>
+            <span className="mt-1 text-white/30">│</span>
+            <span className="flex flex-col items-center gap-0.5">
+              <span className="material-symbols-outlined text-[16px] text-slate-300">pan_tool</span>
+              <span className="text-center">雙指<br />平移</span>
+            </span>
+            <span className="mt-1 text-white/30">│</span>
+            <span className="flex flex-col items-center gap-0.5">
+              <span className="material-symbols-outlined text-[16px] text-slate-300">pinch</span>
+              <span className="text-center">雙指<br />縮放</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="absolute bottom-6 right-6 w-28 rounded-xl border border-border-dark bg-surface-dark/95 p-2 shadow-panel backdrop-blur-xl md:w-56 md:p-3">
+          <div className="mb-1 flex items-center justify-between md:mb-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-white md:text-xs">Floor Plan</span>
             <span
-              className={`text-[10px] font-semibold ${
+              className={`text-[9px] font-semibold md:text-[10px] ${
                 isCollisionHit ? "text-rose-400" : "text-emerald-400"
               }`}
             >
-              {isCollisionHit ? "hit" : "no-hit"}
+              {isCollisionHit ? "hit" : "ok"}
             </span>
           </div>
-          <div className="aspect-square rounded-lg border border-border-dark bg-[#1e2936] p-2">
+          <div className="aspect-square rounded-lg border border-border-dark bg-[#1e2936] p-1 md:p-2">
             <svg className="h-full w-full opacity-85" viewBox="0 0 200 200">
               <rect x="1" y="1" width="198" height="198" fill="#0f172a" stroke="#334155" />
               {minimapWallPaths.map((wallPath) => (
@@ -1223,7 +1244,7 @@ export function GeometryPreview({
         <div className="absolute right-6 top-6 flex flex-col gap-2">
           <button
             type="button"
-            className="flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white"
+            className="viewer-icon-btn"
             title="截圖"
             onClick={handleScreenshot}
           >
@@ -1231,11 +1252,7 @@ export function GeometryPreview({
           </button>
           <button
             type="button"
-            className={`flex size-10 items-center justify-center rounded-lg border transition ${
-              isMeasureMode
-                ? "border-primary bg-primary text-white"
-                : "border-border-dark bg-surface-dark/80 text-slate-300 hover:border-primary hover:bg-primary hover:text-white"
-            }`}
+            className={`viewer-icon-btn ${isMeasureMode ? "viewer-icon-btn-active" : ""}`}
             title={isMeasureMode ? "關閉量測（點兩點量距離）" : "量測距離"}
             onClick={() => setIsMeasureMode((prev) => !prev)}
           >
@@ -1243,12 +1260,12 @@ export function GeometryPreview({
           </button>
           <button
             type="button"
-            className="flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white"
-            title={isFullscreen ? "退出全螢幕" : "全螢幕"}
-            onClick={handleToggleFullscreen}
+            className={`viewer-icon-btn ${isFirstPersonMode ? "viewer-icon-btn-active" : ""}`}
+            title={isFirstPersonMode ? "退出第一人稱（俯視模式）" : "進入第一人稱（步行模式）"}
+            onClick={onToggleFirstPersonMode}
           >
             <span className="material-symbols-outlined">
-              {isFullscreen ? "fullscreen_exit" : "fullscreen"}
+              {isFirstPersonMode ? "3d_rotation" : "directions_walk"}
             </span>
           </button>
         </div>

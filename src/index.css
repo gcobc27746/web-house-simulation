@@ -105,6 +105,22 @@
     @apply relative;
   }
 
+  /* 3D viewer icon button — hover only fires on real pointer devices (no sticky-hover on mobile) */
+  .viewer-icon-btn {
+    @apply flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition;
+  }
+  .viewer-icon-btn:active {
+    @apply border-primary bg-primary text-white;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .viewer-icon-btn:hover {
+      @apply border-primary bg-primary text-white;
+    }
+  }
+  .viewer-icon-btn-active {
+    @apply border-primary bg-primary text-white;
+  }
+
   .geometry-canvas {
     @apply min-h-[520px] overflow-hidden rounded-xl border border-border-dark bg-black/20;
   }
