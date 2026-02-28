@@ -43,6 +43,20 @@ interface MinimapPose {
   angleDeg: number;
 }
 
+interface MeasureSegment {
+  id: string;
+  p1: THREE.Vector3;
+  p2: THREE.Vector3;
+  distance: number;
+  mid3d: THREE.Vector3;
+  group: THREE.Group;
+}
+
+interface MeasureSegmentDisplay {
+  id: string;
+  distance: number;
+}
+
 function clampBoundsSpan(min: number, max: number): { min: number; max: number } {
   const span = max - min;
   if (span >= 1e-4) return { min, max };
@@ -133,11 +147,23 @@ export function GeometryPreview({
   });
   const minimapPoseRef = useRef<MinimapPose | null>(null);
   const furnitureBuildTokenRef = useRef(0);
+  const measureRootRef = useRef<THREE.Group | null>(null);
+  const measureSegmentsRef = useRef<MeasureSegment[]>([]);
+  const measureRedoStackRef = useRef<MeasureSegment[]>([]);
+  const measureActivePointRef = useRef<THREE.Vector3 | null>(null);
+  const measureActiveMeshRef = useRef<THREE.Mesh | null>(null);
+  const measureLabelRefs = useRef(new Map<string, HTMLDivElement>());
+  const isMeasureModeRef = useRef(false);
+  const pointerDownClientRef = useRef<{ x: number; y: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [isFirstPersonMode, setIsFirstPersonMode] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
   const [isCollisionHit, setIsCollisionHit] = useState(false);
   const [minimapPose, setMinimapPose] = useState<MinimapPose | null>(null);
+  const [isMeasureMode, setIsMeasureMode] = useState(false);
+  const [measureHasActive, setMeasureHasActive] = useState(false);
+  const [measureSegments, setMeasureSegments] = useState<MeasureSegmentDisplay[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const minimapBounds = useMemo<MinimapBounds>(() => {
     const walls = floorplanData.walls ?? [];
@@ -276,6 +302,8 @@ export function GeometryPreview({
     scene.add(contentRoot);
     const debugRoot = new THREE.Group();
     scene.add(debugRoot);
+    const measureRoot = new THREE.Group();
+    scene.add(measureRoot);
 
     const controls = new PointerLockControls(camera, renderer.domElement);
     controls.pointerSpeed = lookSensitivity;
@@ -317,6 +345,112 @@ export function GeometryPreview({
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
+    const onMeasurePointerDown = (event: PointerEvent) => {
+      pointerDownClientRef.current = { x: event.clientX, y: event.clientY };
+    };
+    const onMeasurePointerUp = (event: PointerEvent) => {
+      const downPos = pointerDownClientRef.current;
+      pointerDownClientRef.current = null;
+      if (!isMeasureModeRef.current || !downPos) return;
+      // In orbit mode, ignore if the pointer moved too far (drag → not a click)
+      if (
+        !isFirstPersonModeRef.current &&
+        Math.hypot(event.clientX - downPos.x, event.clientY - downPos.y) > 6
+      )
+        return;
+
+      const currentCamera = cameraRef.current;
+      const currentContent = contentRootRef.current;
+      if (!currentCamera || !currentContent) return;
+
+      // In first-person mode the crosshair is always at the screen centre (NDC 0,0)
+      let nx: number;
+      let ny: number;
+      if (isFirstPersonModeRef.current) {
+        nx = 0;
+        ny = 0;
+      } else {
+        const rect = renderer.domElement.getBoundingClientRect();
+        nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        ny = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      }
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(nx, ny), currentCamera);
+      const hits = raycaster.intersectObjects(currentContent.children, true);
+      if (hits.length === 0) return;
+
+      const hitPoint = hits[0].point.clone();
+
+      if (measureActivePointRef.current === null) {
+        // First click: place pending point marker
+        const sphereGeo = new THREE.SphereGeometry(0.06, 10, 10);
+        const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffdd00 });
+        const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+        sphere.position.copy(hitPoint);
+        measureRoot.add(sphere);
+        measureActivePointRef.current = hitPoint;
+        measureActiveMeshRef.current = sphere;
+        setMeasureHasActive(true);
+      } else {
+        // Second click: complete a segment
+        const p1 = measureActivePointRef.current;
+        const p2 = hitPoint;
+
+        // Move pending sphere into a dedicated group for this segment
+        const segGroup = new THREE.Group();
+        const activeSphere = measureActiveMeshRef.current!;
+        measureRoot.remove(activeSphere);
+        segGroup.add(activeSphere);
+
+        const sphere2Geo = new THREE.SphereGeometry(0.06, 10, 10);
+        const sphere2Mat = new THREE.MeshBasicMaterial({ color: 0xffdd00 });
+        const sphere2 = new THREE.Mesh(sphere2Geo, sphere2Mat);
+        sphere2.position.copy(p2);
+        segGroup.add(sphere2);
+
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xffdd00 });
+        segGroup.add(new THREE.Line(lineGeo, lineMat));
+
+        measureRoot.add(segGroup);
+
+        const seg: MeasureSegment = {
+          id: `seg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          p1: p1.clone(),
+          p2: p2.clone(),
+          distance: p1.distanceTo(p2),
+          mid3d: new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5),
+          group: segGroup,
+        };
+
+        // Enforce max 10 segments (remove oldest if over limit)
+        const currentSegs = measureSegmentsRef.current;
+        if (currentSegs.length >= 10) {
+          const oldest = currentSegs.shift()!;
+          measureRoot.remove(oldest.group);
+          oldest.group.traverse(disposeObject3D);
+        }
+        currentSegs.push(seg);
+
+        // Clear redo stack when a new segment is committed
+        for (const redoSeg of measureRedoStackRef.current) {
+          redoSeg.group.traverse(disposeObject3D);
+        }
+        measureRedoStackRef.current = [];
+
+        // Reset active state
+        measureActivePointRef.current = null;
+        measureActiveMeshRef.current = null;
+        setMeasureHasActive(false);
+        setMeasureSegments(currentSegs.map((s) => ({ id: s.id, distance: s.distance })));
+        renderer.render(scene, currentCamera);
+      }
+    };
+
+    renderer.domElement.addEventListener("pointerdown", onMeasurePointerDown);
+    renderer.domElement.addEventListener("pointerup", onMeasurePointerUp);
+
     mountElement.appendChild(renderer.domElement);
 
     sceneRef.current = scene;
@@ -324,6 +458,7 @@ export function GeometryPreview({
     rendererRef.current = renderer;
     contentRootRef.current = contentRoot;
     debugRootRef.current = debugRoot;
+    measureRootRef.current = measureRoot;
     controlsRef.current = controls;
     orbitControlsRef.current = orbitControls;
     shouldAnimateRef.current = true;
@@ -440,6 +575,22 @@ export function GeometryPreview({
         setMinimapPose(pose);
       }
 
+      // Update all segment label positions every frame via direct DOM writes
+      for (const seg of measureSegmentsRef.current) {
+        const labelEl = measureLabelRefs.current.get(seg.id);
+        if (!labelEl) continue;
+        const proj = seg.mid3d.clone().project(camera);
+        if (proj.z < 1) {
+          const lx = ((proj.x + 1) / 2) * renderer.domElement.clientWidth;
+          const ly = ((-proj.y + 1) / 2) * renderer.domElement.clientHeight;
+          labelEl.style.left = `${lx}px`;
+          labelEl.style.top = `${ly}px`;
+          labelEl.style.display = "";
+        } else {
+          labelEl.style.display = "none";
+        }
+      }
+
       renderer.render(scene, camera);
       animationFrameRef.current = window.requestAnimationFrame(animate);
     };
@@ -465,6 +616,8 @@ export function GeometryPreview({
       previousTimestampRef.current = null;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      renderer.domElement.removeEventListener("pointerdown", onMeasurePointerDown);
+      renderer.domElement.removeEventListener("pointerup", onMeasurePointerUp);
       controls.removeEventListener("lock", onControlLock);
       controls.removeEventListener("unlock", onControlUnlock);
       controls.unlock();
@@ -472,8 +625,10 @@ export function GeometryPreview({
       resizeObserver.disconnect();
       contentRoot.traverse(disposeObject3D);
       debugRoot.traverse(disposeObject3D);
+      measureRoot.traverse(disposeObject3D);
       scene.remove(contentRoot);
       scene.remove(debugRoot);
+      scene.remove(measureRoot);
       if (renderer.domElement.parentElement === mountElement) {
         mountElement.removeChild(renderer.domElement);
       }
@@ -484,6 +639,7 @@ export function GeometryPreview({
       rendererRef.current = null;
       contentRootRef.current = null;
       debugRootRef.current = null;
+      measureRootRef.current = null;
       controlsRef.current = null;
       orbitControlsRef.current = null;
     };
@@ -606,6 +762,197 @@ export function GeometryPreview({
     }
     renderScene();
   }, [cameraHeight, isFirstPersonMode]);
+
+  // Sync isMeasureMode to ref; clear measurements when mode turns off
+  useEffect(() => {
+    isMeasureModeRef.current = isMeasureMode;
+    if (!isMeasureMode) {
+      const measureRoot = measureRootRef.current;
+      if (measureRoot) {
+        while (measureRoot.children.length > 0) {
+          const child = measureRoot.children[0];
+          measureRoot.remove(child);
+          child.traverse(disposeObject3D);
+        }
+      }
+      for (const seg of measureRedoStackRef.current) {
+        seg.group.traverse(disposeObject3D);
+      }
+      measureSegmentsRef.current = [];
+      measureRedoStackRef.current = [];
+      measureActivePointRef.current = null;
+      measureActiveMeshRef.current = null;
+      setMeasureHasActive(false);
+      setMeasureSegments([]);
+      renderScene();
+    }
+  }, [isMeasureMode]);
+
+  // Undo/redo/clear keyboard shortcuts (active only when in measure mode)
+  useEffect(() => {
+    if (!isMeasureMode) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z: undo
+      if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
+        e.preventDefault();
+        const measureRoot = measureRootRef.current;
+        if (!measureRoot) return;
+
+        // Cancel pending first point first
+        if (measureActivePointRef.current !== null) {
+          const activeMesh = measureActiveMeshRef.current;
+          if (activeMesh) {
+            measureRoot.remove(activeMesh);
+            activeMesh.traverse(disposeObject3D);
+          }
+          measureActivePointRef.current = null;
+          measureActiveMeshRef.current = null;
+          setMeasureHasActive(false);
+          renderScene();
+          return;
+        }
+
+        // Remove last committed segment
+        const segs = measureSegmentsRef.current;
+        if (segs.length === 0) return;
+        const last = segs.pop()!;
+        measureRoot.remove(last.group);
+        measureRedoStackRef.current.push(last);
+        setMeasureSegments(segs.map((s) => ({ id: s.id, distance: s.distance })));
+        renderScene();
+        return;
+      }
+
+      // Ctrl+Y: redo
+      if (e.ctrlKey && e.code === "KeyY") {
+        e.preventDefault();
+        const measureRoot = measureRootRef.current;
+        if (!measureRoot) return;
+        const redoStack = measureRedoStackRef.current;
+        if (redoStack.length === 0) return;
+        const seg = redoStack.pop()!;
+        measureRoot.add(seg.group);
+        measureSegmentsRef.current.push(seg);
+        setMeasureSegments(
+          measureSegmentsRef.current.map((s) => ({ id: s.id, distance: s.distance })),
+        );
+        renderScene();
+        return;
+      }
+
+      // Q: clear all
+      if (!e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyQ") {
+        const measureRoot = measureRootRef.current;
+        if (!measureRoot) return;
+
+        // Remove active pending point
+        if (measureActiveMeshRef.current) {
+          measureRoot.remove(measureActiveMeshRef.current);
+          measureActiveMeshRef.current.traverse(disposeObject3D);
+          measureActiveMeshRef.current = null;
+        }
+        measureActivePointRef.current = null;
+
+        // Remove all segments
+        for (const seg of measureSegmentsRef.current) {
+          measureRoot.remove(seg.group);
+          seg.group.traverse(disposeObject3D);
+        }
+        measureSegmentsRef.current = [];
+
+        // Dispose redo stack
+        for (const seg of measureRedoStackRef.current) {
+          seg.group.traverse(disposeObject3D);
+        }
+        measureRedoStackRef.current = [];
+
+        setMeasureHasActive(false);
+        setMeasureSegments([]);
+        renderScene();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMeasureMode]);
+
+  // Fullscreen change listener
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const handleScreenshot = () => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!renderer || !scene || !camera) return;
+
+    renderer.render(scene, camera);
+    const glCanvas = renderer.domElement;
+
+    // Composite canvas at full device-pixel resolution
+    const composite = document.createElement("canvas");
+    composite.width = glCanvas.width;
+    composite.height = glCanvas.height;
+    const ctx = composite.getContext("2d");
+    if (!ctx) return;
+
+    // 1. Draw the 3D scene
+    ctx.drawImage(glCanvas, 0, 0);
+
+    // 2. Draw all measure segment labels (project 3D midpoints → device pixels)
+    const dpr = glCanvas.width / Math.max(glCanvas.clientWidth, 1);
+    const fontSize = Math.round(14 * dpr);
+    const padH = 12 * dpr;
+    const padV = 6 * dpr;
+    ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+
+    for (const seg of measureSegmentsRef.current) {
+      const proj = seg.mid3d.clone().project(camera);
+      if (proj.z >= 1) continue;
+      const lx = ((proj.x + 1) / 2) * glCanvas.width;
+      const ly = ((-proj.y + 1) / 2) * glCanvas.height;
+
+      const text = `${seg.distance.toFixed(2)} m`;
+      const textW = ctx.measureText(text).width;
+      const boxW = textW + padH * 2;
+      const boxH = fontSize + padV * 2;
+
+      ctx.beginPath();
+      ctx.roundRect(lx - boxW / 2, ly - boxH / 2, boxW, boxH, 8 * dpr);
+      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(250,204,21,0.5)";
+      ctx.lineWidth = dpr;
+      ctx.stroke();
+
+      ctx.fillStyle = "#fde047";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, lx, ly);
+    }
+
+    const dataUrl = composite.toDataURL("image/png");
+    const anchor = document.createElement("a");
+    anchor.href = dataUrl;
+    anchor.download = `spatial-planner-${Date.now()}.png`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  };
+
+  const handleToggleFullscreen = () => {
+    const container = mountRef.current?.closest("section") ?? mountRef.current?.parentElement;
+    if (!container) return;
+    if (!document.fullscreenElement) {
+      void container.requestFullscreen();
+    } else {
+      void document.exitFullscreen();
+    }
+  };
 
   const onToggleFirstPersonMode = () => {
     const controls = controlsRef.current;
@@ -840,25 +1187,61 @@ export function GeometryPreview({
           <button
             type="button"
             className="flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white"
-            title="Screenshot"
+            title="截圖"
+            onClick={handleScreenshot}
           >
             <span className="material-symbols-outlined">photo_camera</span>
           </button>
           <button
             type="button"
-            className="flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white"
-            title="Measure"
+            className={`flex size-10 items-center justify-center rounded-lg border transition ${
+              isMeasureMode
+                ? "border-primary bg-primary text-white"
+                : "border-border-dark bg-surface-dark/80 text-slate-300 hover:border-primary hover:bg-primary hover:text-white"
+            }`}
+            title={isMeasureMode ? "關閉量測（點兩點量距離）" : "量測距離"}
+            onClick={() => setIsMeasureMode((prev) => !prev)}
           >
             <span className="material-symbols-outlined">straighten</span>
           </button>
           <button
             type="button"
             className="flex size-10 items-center justify-center rounded-lg border border-border-dark bg-surface-dark/80 text-slate-300 transition hover:border-primary hover:bg-primary hover:text-white"
-            title="Fullscreen"
+            title={isFullscreen ? "退出全螢幕" : "全螢幕"}
+            onClick={handleToggleFullscreen}
           >
-            <span className="material-symbols-outlined">fullscreen</span>
+            <span className="material-symbols-outlined">
+              {isFullscreen ? "fullscreen_exit" : "fullscreen"}
+            </span>
           </button>
         </div>
+
+        {/* Measure distance labels (one per committed segment) */}
+        {isMeasureMode &&
+          measureSegments.map((seg) => (
+            <div
+              key={seg.id}
+              ref={(el) => {
+                if (el) measureLabelRefs.current.set(seg.id, el);
+                else measureLabelRefs.current.delete(seg.id);
+              }}
+              className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-yellow-400/50 bg-black/80 px-3 py-1.5 text-sm font-semibold text-yellow-300 backdrop-blur-sm"
+              style={{ left: 0, top: 0 }}
+            >
+              {seg.distance.toFixed(2)} m
+            </div>
+          ))}
+
+        {/* Measure mode hint */}
+        {isMeasureMode && (
+          <div className="pointer-events-none absolute left-1/2 top-16 -translate-x-1/2 rounded-full border border-yellow-400/30 bg-black/70 px-4 py-1.5 text-xs font-medium text-yellow-300 backdrop-blur-md">
+            {measureHasActive
+              ? "點擊第二個位置以完成量測 · Ctrl+Z 取消"
+              : measureSegments.length === 0
+                ? "點擊場景中的物件表面設置第一個量測點"
+                : `已有 ${measureSegments.length} 條線段 · 點擊繼續 · Ctrl+Z 復原 · Ctrl+Y 重做 · Q 清除`}
+          </div>
+        )}
 
         {isFirstPersonMode && <div className="crosshair" aria-hidden="true" />}
 
