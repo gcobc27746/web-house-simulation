@@ -109,6 +109,7 @@ export function Canvas({
 }: CanvasProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const stageWrapRef = useRef<HTMLDivElement | null>(null);
+  const lastTouchesRef = useRef<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [transform, setTransform] = useState<TransformState>({
     x: 0,
     y: 0,
@@ -119,6 +120,7 @@ export function Canvas({
     height: BASE_VIEWPORT.height,
   });
   const [isTabPanning, setIsTabPanning] = useState(false);
+  const [isPinching, setIsPinching] = useState(false);
   const [windowSelection, setWindowSelection] = useState<{
     start: Point2D;
     end: Point2D;
@@ -170,6 +172,17 @@ export function Canvas({
     const observer = new ResizeObserver(updateViewport);
     observer.observe(stageWrap);
     return () => observer.disconnect();
+  }, []);
+
+  // Prevent browser native pinch-zoom on iOS Safari so our custom handler takes over
+  useEffect(() => {
+    const el = stageWrapRef.current;
+    if (!el) return;
+    const prevent = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    el.addEventListener("touchmove", prevent, { passive: false });
+    return () => el.removeEventListener("touchmove", prevent);
   }, []);
 
   useEffect(() => {
@@ -411,6 +424,68 @@ export function Canvas({
     }));
   };
 
+  const onStageTouchStart = (e: KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length === 2) {
+      const t = e.evt.touches;
+      lastTouchesRef.current = {
+        x1: t[0].clientX, y1: t[0].clientY,
+        x2: t[1].clientX, y2: t[1].clientY,
+      };
+      setIsPinching(true);
+    }
+  };
+
+  const onStageTouchMove = (e: KonvaEventObject<TouchEvent>) => {
+    if (!image) return;
+    const touches = e.evt.touches;
+    if (touches.length !== 2) {
+      lastTouchesRef.current = null;
+      return;
+    }
+
+    const t0 = touches[0];
+    const t1 = touches[1];
+    const prev = lastTouchesRef.current;
+
+    if (!prev) {
+      lastTouchesRef.current = { x1: t0.clientX, y1: t0.clientY, x2: t1.clientX, y2: t1.clientY };
+      return;
+    }
+
+    const prevDist = Math.hypot(prev.x2 - prev.x1, prev.y2 - prev.y1);
+    const newDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    if (prevDist < 1) return;
+
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const rect = stage.container().getBoundingClientRect();
+
+    const midX = (t0.clientX + t1.clientX) / 2 - rect.left;
+    const midY = (t0.clientY + t1.clientY) / 2 - rect.top;
+    const prevMidX = (prev.x1 + prev.x2) / 2 - rect.left;
+    const prevMidY = (prev.y1 + prev.y2) / 2 - rect.top;
+    const scaleFactor = newDist / prevDist;
+
+    setTransform((cur) => {
+      const newScale = clamp(cur.scale * scaleFactor, 0.05, 8);
+      const ratio = newScale / cur.scale;
+      return {
+        scale: newScale,
+        x: midX - (midX - cur.x) * ratio + (midX - prevMidX),
+        y: midY - (midY - cur.y) * ratio + (midY - prevMidY),
+      };
+    });
+
+    lastTouchesRef.current = { x1: t0.clientX, y1: t0.clientY, x2: t1.clientX, y2: t1.clientY };
+  };
+
+  const onStageTouchEnd = (e: KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length < 2) {
+      lastTouchesRef.current = null;
+      setIsPinching(false);
+    }
+  };
+
   const stageToImagePoint = (pointer: Point2D): Point2D => ({
     x: (pointer.x - transform.x) / transform.scale,
     y: (pointer.y - transform.y) / transform.scale,
@@ -606,6 +681,9 @@ export function Canvas({
           onMouseDown={onStageMouseDown}
           onMouseMove={onStageMouseMove}
           onMouseUp={onStageMouseUp}
+          onTouchStart={onStageTouchStart}
+          onTouchMove={onStageTouchMove}
+          onTouchEnd={onStageTouchEnd}
         >
           <Layer>
             {image && (
@@ -615,7 +693,7 @@ export function Canvas({
                 y={transform.y}
                 scaleX={transform.scale}
                 scaleY={transform.scale}
-                draggable={!isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
+                draggable={!isPinching && !isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
                 onDragEnd={(evt) => {
                   if (evt.target.name() !== "canvas-group") return;
                   setTransform((previous) => ({
