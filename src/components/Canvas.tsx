@@ -110,6 +110,7 @@ export function Canvas({
   const panelRef = useRef<HTMLElement | null>(null);
   const stageWrapRef = useRef<HTMLDivElement | null>(null);
   const lastTouchesRef = useRef<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const tapStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const [transform, setTransform] = useState<TransformState>({
     x: 0,
     y: 0,
@@ -432,12 +433,51 @@ export function Canvas({
         x2: t[1].clientX, y2: t[1].clientY,
       };
       setIsPinching(true);
+      tapStartPosRef.current = null; // two-finger gesture, not a tap
+      if (isWindowMode) setWindowSelection(null); // cancel window drag on pinch
+    } else if (e.evt.touches.length === 1) {
+      const stage = e.target.getStage();
+      const pointer = stage?.getPointerPosition();
+      if (isWindowMode && image && pointer) {
+        // Window mode: start drag-to-select (mirrors onStageMouseDown window branch)
+        const imagePoint = stageToImagePoint(pointer);
+        if (isInsideImage(imagePoint)) {
+          onSelectWall(null);
+          onSelectFurniture(null);
+          setWindowSelection({ start: imagePoint, end: imagePoint });
+        }
+        tapStartPosRef.current = null; // drag mode, not a tap
+      } else {
+        tapStartPosRef.current = pointer ?? null;
+      }
     }
   };
 
   const onStageTouchMove = (e: KonvaEventObject<TouchEvent>) => {
     if (!image) return;
     const touches = e.evt.touches;
+
+    // Window mode: single-finger drag updates the selection rectangle
+    if (touches.length === 1 && isWindowMode && windowSelection) {
+      const stage = e.target.getStage();
+      const pointer = stage?.getPointerPosition();
+      if (pointer) {
+        setWindowSelection((prev) =>
+          prev ? { ...prev, end: clampToImageBounds(stageToImagePoint(pointer)) } : prev,
+        );
+      }
+      return;
+    }
+
+    // If the single finger moved significantly, it's a drag — cancel tap intent
+    if (touches.length === 1 && tapStartPosRef.current) {
+      const stage = e.target.getStage();
+      const cur = stage?.getPointerPosition();
+      if (cur && Math.hypot(cur.x - tapStartPosRef.current.x, cur.y - tapStartPosRef.current.y) > 10) {
+        tapStartPosRef.current = null;
+      }
+    }
+
     if (touches.length !== 2) {
       lastTouchesRef.current = null;
       return;
@@ -484,6 +524,53 @@ export function Canvas({
       lastTouchesRef.current = null;
       setIsPinching(false);
     }
+
+    if (e.evt.touches.length !== 0) return;
+
+    // Window mode: finalize the drag-select (mirrors onStageMouseUp logic)
+    if (isWindowMode && windowSelection && selectionRect) {
+      if (selectionRect.width >= 2 && selectionRect.height >= 2) {
+        for (const wall of pixelWalls) {
+          const clipped = clipSegmentWithRect(wall.start, wall.end, selectionRect);
+          if (!clipped) continue;
+          const sourceWall = wallById.get(wall.id);
+          if (!sourceWall) continue;
+          const wallLength = Math.hypot(
+            sourceWall.end.x - sourceWall.start.x,
+            sourceWall.end.y - sourceWall.start.y,
+          );
+          if (wallLength <= 0) continue;
+          const startOffset = wallLength * clipped.t0;
+          const endOffset = wallLength * clipped.t1;
+          if (endOffset - startOffset < 0.02) continue;
+          onAddWindowByOffsets(wall.id, startOffset, endOffset);
+        }
+      }
+      setWindowSelection(null);
+      return;
+    }
+
+    // Single-tap: finger didn't move much — dispatch the appropriate action
+    if (tapStartPosRef.current && image) {
+      const pointer = tapStartPosRef.current;
+      tapStartPosRef.current = null;
+      const imagePoint = stageToImagePoint(pointer);
+      if (isInsideImage(imagePoint)) {
+        if (isCalibrationMode) {
+          onAddMeasurementPoint(imagePoint);
+        } else if (isDrawingMode && scale) {
+          const finalImagePoint = applyDrawingConstraint(imagePoint, false, false);
+          const meterPoint = pixelToMeter(finalImagePoint.x, finalImagePoint.y, scale.pixelsPerMeter);
+          if (!currentWall) {
+            onSelectFurniture(null);
+            onBeginWall(meterPoint);
+          } else {
+            onCompleteWall(meterPoint);
+          }
+        }
+      }
+    }
+    tapStartPosRef.current = null;
   };
 
   const stageToImagePoint = (pointer: Point2D): Point2D => ({
