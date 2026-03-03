@@ -19,6 +19,7 @@ export interface UseStaircaseLinkMarkingReturn {
   selectLink: (id: string | null) => void;
   moveLinkPoint: (id: string, end: "a" | "b", worldPoint: Point2D) => void;
   updateLinkAngles: (id: string, arrivalAngleAtA: number, arrivalAngleAtB: number) => void;
+  updateLinkAngle: (id: string, end: "a" | "b", angleDeg: number) => void;
   hydrateLinks: (items: StaircaseLinkItem[]) => void;
   resetLinks: () => void;
 }
@@ -81,6 +82,21 @@ export function useStaircaseLinkMarking(): UseStaircaseLinkMarkingReturn {
     [],
   );
 
+  const updateLinkAngle = useCallback(
+    (id: string, end: "a" | "b", angleDeg: number) => {
+      setLinks((prev) =>
+        prev.map((l) =>
+          l.id === id
+            ? end === "a"
+              ? { ...l, arrivalAngleAtA: angleDeg }
+              : { ...l, arrivalAngleAtB: angleDeg }
+            : l,
+        ),
+      );
+    },
+    [],
+  );
+
   const moveLinkPoint = useCallback(
     (id: string, end: "a" | "b", worldPoint: Point2D) => {
       setLinks((prev) =>
@@ -122,6 +138,7 @@ export function useStaircaseLinkMarking(): UseStaircaseLinkMarkingReturn {
     selectLink,
     moveLinkPoint,
     updateLinkAngles,
+    updateLinkAngle,
     hydrateLinks,
     resetLinks,
   };

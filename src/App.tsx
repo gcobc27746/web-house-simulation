@@ -8,6 +8,7 @@ import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { type LoadedImagePayload, useImageUpload } from "./hooks/useImageUpload";
 import { useScaleCalibration } from "./hooks/useScaleCalibration";
 import { useStaircaseLinkMarking } from "./hooks/useStaircaseLinkMarking";
+import { useTourStartPoint } from "./hooks/useTourStartPoint";
 import { useWallDrawing } from "./hooks/useWallDrawing";
 import { useWindowMarking } from "./hooks/useWindowMarking";
 import { GeometryPreview } from "./step2/viewer/GeometryPreview";
@@ -36,7 +37,7 @@ const WINDOW_BALCONY_ICON = new URL("../resources/icons/balcony.svg", import.met
 const nowIso = () => new Date().toISOString();
 type ViewMode = "design" | "viewer";
 type TopMenu = "file" | "edit" | "view";
-type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture" | "staircase";
+type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture" | "staircase" | "tour";
 type ToolIcon =
   | { kind: "material"; name: string }
   | { kind: "svg"; src: string };
@@ -54,6 +55,7 @@ const TOOL_ITEMS: Array<{ key: ToolMode; label: string }> = [
   { key: "window", label: "窗戶" },
   { key: "furniture", label: "家具" },
   { key: "staircase", label: "傳送" },
+  { key: "tour", label: "起點" },
 ];
 
 const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string; iconSrc: string }> = [
@@ -111,6 +113,7 @@ function createInitialData(): FloorplanData {
     windows: [],
     furniture: [],
     staircaseLinks: [],
+    tourStartPoint: undefined,
   };
 }
 
@@ -186,6 +189,7 @@ export default function App() {
   const wallDrawing = useWallDrawing();
   const windowMarking = useWindowMarking();
   const staircaseLinkMarking = useStaircaseLinkMarking();
+  const tourStart = useTourStartPoint();
   const imageUpload = useImageUpload();
 
   const resetWorkspaceData = useCallback(() => {
@@ -193,13 +197,14 @@ export default function App() {
     wallDrawing.resetWalls();
     windowMarking.resetWindows();
     staircaseLinkMarking.resetLinks();
+    tourStart.clear();
     setFurniture([]);
     setSelectedFurnitureId(null);
     setUploadedImage(null);
     setIsDistanceDialogOpen(false);
     setLayerVisibility(DEFAULT_LAYER_VISIBILITY);
     setFloorplanData(createInitialData());
-  }, [calibration, wallDrawing, windowMarking, staircaseLinkMarking]);
+  }, [calibration, wallDrawing, windowMarking, staircaseLinkMarking, tourStart]);
 
   const applyLoadedData = useCallback(
     (nextData: FloorplanData) => {
@@ -208,12 +213,13 @@ export default function App() {
       wallDrawing.hydrateWalls(nextData.walls);
       windowMarking.hydrateWindows(nextData.windows ?? []);
       staircaseLinkMarking.hydrateLinks(nextData.staircaseLinks ?? []);
+      tourStart.hydrate(nextData.tourStartPoint ?? null);
       setFurniture(nextData.furniture ?? []);
       setSelectedFurnitureId(null);
       setIsDistanceDialogOpen(false);
       setUploadedImage(null);
     },
-    [calibration, wallDrawing, windowMarking, staircaseLinkMarking],
+    [calibration, wallDrawing, windowMarking, staircaseLinkMarking, tourStart],
   );
 
   const storage = useFloorplanStorage(floorplanData, applyLoadedData);
@@ -238,6 +244,7 @@ export default function App() {
         wallDrawing.hydrateWalls(dataWithImage.walls);
         windowMarking.hydrateWindows(dataWithImage.windows ?? []);
         staircaseLinkMarking.hydrateLinks(dataWithImage.staircaseLinks ?? []);
+        tourStart.hydrate(dataWithImage.tourStartPoint ?? null);
         setFurniture(dataWithImage.furniture ?? []);
         setSelectedFurnitureId(null);
       } else {
@@ -251,7 +258,7 @@ export default function App() {
       setUploadedImage(result.image);
       setIsGalleryOpen(false);
     },
-    [calibration, wallDrawing, windowMarking],
+    [calibration, wallDrawing, windowMarking, staircaseLinkMarking, tourStart],
   );
 
   const handleExportMetadataPhoto = useCallback(async () => {
@@ -395,6 +402,7 @@ export default function App() {
     wallDrawing.resetWalls();
     windowMarking.resetWindows();
     staircaseLinkMarking.resetLinks();
+    tourStart.clear();
     setFurniture([]);
     setSelectedFurnitureId(null);
     setFloorplanData((previous) => ({
@@ -442,12 +450,13 @@ export default function App() {
       windows: windowMarking.windows,
       furniture,
       staircaseLinks: staircaseLinkMarking.links,
+      tourStartPoint: tourStart.point ?? undefined,
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
       },
     }));
-  }, [furniture, wallDrawing.walls, wallDrawing.polygons, windowMarking.windows, staircaseLinkMarking.links]);
+  }, [furniture, wallDrawing.walls, wallDrawing.polygons, windowMarking.windows, staircaseLinkMarking.links, tourStart.point]);
 
   const addFurniture = (catalogId: FurnitureCatalogId) => {
     const catalogItem = getFurnitureCatalogItem(catalogId);
@@ -583,6 +592,7 @@ export default function App() {
     window: { kind: "svg", src: activeWindowOption.iconSrc },
     furniture: { kind: "material", name: "chair" },
     staircase: { kind: "material", name: "elevator" },
+    tour: { kind: "material", name: "location_on" },
   };
 
   const handleToolButtonClick = (tool: ToolMode) => {
@@ -593,6 +603,14 @@ export default function App() {
     }
     if (tool !== "staircase") {
       staircaseLinkMarking.stopMarking();
+    }
+    if (tool !== "wall") {
+      wallDrawing.cancelCurrentWall();
+      wallDrawing.stopDrawing();
+    }
+    if (tool !== "window") {
+      windowMarking.stopWindowMode();
+      windowMarking.cancelDraft();
     }
   };
 
@@ -895,6 +913,42 @@ export default function App() {
           <span className="text-xs text-slate-400">
             傳送連結：{staircaseLinkMarking.links.length}
           </span>
+        </>
+      );
+    }
+
+    if (activeTool === "tour") {
+      return (
+        <>
+          <span className="text-xs text-slate-300">
+            {tourStart.point ? "點擊移動起點，拖曳方向箭頭設定視角" : "點擊畫布設定3D導覽起點"}
+          </span>
+          {tourStart.point && (
+            <>
+              <div className="h-5 w-px bg-white/10" />
+              <span className="text-xs text-slate-400">方向</span>
+              <input
+                type="number"
+                min={0}
+                max={359}
+                step={5}
+                value={Math.round(tourStart.point.angleDeg)}
+                onChange={(e) =>
+                  tourStart.updateAngle(((Number(e.target.value) % 360) + 360) % 360)
+                }
+                className="w-16 rounded border border-border-dark bg-surface-darker px-2 py-0.5 text-center text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-xs text-slate-500">°</span>
+              <div className="h-5 w-px bg-white/10" />
+              <button
+                type="button"
+                className="rounded-lg border border-rose-500/30 px-2 py-1.5 text-xs text-rose-200 transition hover:bg-rose-500/10"
+                onClick={() => tourStart.clear()}
+              >
+                刪除起點
+              </button>
+            </>
+          )}
         </>
       );
     }
@@ -1344,6 +1398,12 @@ export default function App() {
                 }
               }}
               onMoveStaircaseLinkPoint={staircaseLinkMarking.moveLinkPoint}
+              onUpdateStaircaseLinkAngle={staircaseLinkMarking.updateLinkAngle}
+              tourStartPoint={tourStart.point}
+              isTourMode={activeTool === "tour"}
+              onSetTourStart={tourStart.place}
+              onMoveTourStart={tourStart.updatePosition}
+              onUpdateTourAngle={tourStart.updateAngle}
               onCanvasStatusChange={setCanvasStatus}
             />
 
@@ -1449,6 +1509,7 @@ export default function App() {
           <div className="absolute inset-0 z-10 flex flex-col">
             <GeometryPreview
             floorplanData={floorplanData}
+            tourStartPoint={tourStart.point ?? undefined}
             ceilingHeight={ceilingHeight}
             wallThickness={wallThickness}
             cameraHeight={cameraHeight}

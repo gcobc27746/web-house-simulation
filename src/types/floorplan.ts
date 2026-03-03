@@ -91,6 +91,14 @@ export interface FurnitureCatalogItem {
       };
 }
 
+/** The starting position and facing direction for 3D first-person tour mode */
+export interface TourStartPoint {
+  /** World coordinates (meters) */
+  position: Point2D;
+  /** Camera facing angle in minimap degrees (0=north/-Z, 90=east/+X) */
+  angleDeg: number;
+}
+
 /** A teleport portal pair: stepping on A teleports to B and vice-versa */
 export interface StaircaseLinkItem {
   id: string;
@@ -113,5 +121,6 @@ export interface FloorplanData {
   windows: WindowOpening[];
   furniture: FurnitureItem[];
   staircaseLinks: StaircaseLinkItem[];
+  tourStartPoint?: TourStartPoint;
 }
 

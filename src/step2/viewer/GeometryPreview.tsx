@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
-import type { FloorplanData } from "../../types/floorplan";
+import type { FloorplanData, TourStartPoint } from "../../types/floorplan";
 import { buildCollisionData, resolveMovement } from "../collision";
 import { buildGeometryFromFloorplan } from "../geometry";
 import { buildFurnitureMeshes } from "./furniture/buildFurnitureMeshes";
 
 interface GeometryPreviewProps {
   floorplanData: FloorplanData;
+  tourStartPoint?: TourStartPoint;
   ceilingHeight: number;
   wallThickness: number;
   cameraHeight: number;
@@ -102,6 +103,7 @@ function disposeObject3D(object: THREE.Object3D) {
 
 export function GeometryPreview({
   floorplanData,
+  tourStartPoint,
   ceilingHeight,
   wallThickness,
   cameraHeight,
@@ -136,6 +138,8 @@ export function GeometryPreview({
     left: false,
     right: false,
   });
+  const isShiftRef = useRef(false);
+  const tourStartPointRef = useRef<TourStartPoint | undefined>(tourStartPoint);
   const lastSceneCenterRef = useRef(new THREE.Vector3(0, 0, 0));
   const previewLookAtRef = useRef(new THREE.Vector3(0, 0, 0));
   const collisionDataRef = useRef(buildCollisionData([]));
@@ -218,6 +222,10 @@ export function GeometryPreview({
     staircaseLinksRef.current = floorplanData.staircaseLinks ?? [];
   }, [floorplanData.staircaseLinks]);
 
+  useEffect(() => {
+    tourStartPointRef.current = tourStartPoint;
+  }, [tourStartPoint]);
+
   const minimapWallPaths = useMemo(() => {
     const walls = floorplanData.walls ?? [];
     return walls.map((wall) => {
@@ -274,12 +282,18 @@ export function GeometryPreview({
     const camera = cameraRef.current;
     if (!camera) return;
 
-    camera.position.set(
-      lastSceneCenterRef.current.x,
-      cameraHeight,
-      lastSceneCenterRef.current.z + 1.2,
-    );
-    camera.lookAt(lastSceneCenterRef.current.x, cameraHeight, lastSceneCenterRef.current.z);
+    const tsp = tourStartPointRef.current;
+    if (tsp) {
+      camera.position.set(tsp.position.x, cameraHeight, tsp.position.y);
+      camera.rotation.set(0, -(tsp.angleDeg * Math.PI) / 180, 0, "YXZ");
+    } else {
+      camera.position.set(
+        lastSceneCenterRef.current.x,
+        cameraHeight,
+        lastSceneCenterRef.current.z + 1.2,
+      );
+      camera.lookAt(lastSceneCenterRef.current.x, cameraHeight, lastSceneCenterRef.current.z);
+    }
   };
 
   useEffect(() => {
@@ -353,12 +367,14 @@ export function GeometryPreview({
       if (event.code === "KeyS") keyStateRef.current.backward = true;
       if (event.code === "KeyA") keyStateRef.current.left = true;
       if (event.code === "KeyD") keyStateRef.current.right = true;
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") isShiftRef.current = true;
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.code === "KeyW") keyStateRef.current.forward = false;
       if (event.code === "KeyS") keyStateRef.current.backward = false;
       if (event.code === "KeyA") keyStateRef.current.left = false;
       if (event.code === "KeyD") keyStateRef.current.right = false;
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") isShiftRef.current = false;
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -554,9 +570,10 @@ export function GeometryPreview({
 
         if (moveDirection.lengthSq() > 0) {
           moveDirection.normalize();
+          const effectiveSpeed = moveSpeed * (isShiftRef.current ? 1.5 : 1);
           const predictedPosition = camera.position
             .clone()
-            .addScaledVector(moveDirection, moveSpeed * delta);
+            .addScaledVector(moveDirection, effectiveSpeed * delta);
           predictedPosition.y = cameraHeight;
 
           const movementResult = resolveMovement({
@@ -1447,6 +1464,19 @@ export function GeometryPreview({
                   <circle key={`${link.id}-b`} cx={posB.x} cy={posB.y} r="5" fill="#f97316" stroke="#fff" strokeWidth="1" opacity="0.9" />,
                 ];
               })}
+              {tourStartPoint && (() => {
+                const tPos = normalizeToMinimap(tourStartPoint.position.x, tourStartPoint.position.y, minimapBounds);
+                const tRad = (tourStartPoint.angleDeg * Math.PI) / 180;
+                const arrowTipX = tPos.x + Math.sin(tRad) * 10;
+                const arrowTipY = tPos.y - Math.cos(tRad) * 10;
+                return (
+                  <g key="tour-start-minimap">
+                    <line x1={tPos.x} y1={tPos.y} x2={arrowTipX} y2={arrowTipY} stroke="#137fec" strokeWidth="1.5" opacity="0.9" />
+                    <circle cx={tPos.x} cy={tPos.y} r="4" fill="#137fec" stroke="white" strokeWidth="1.5" opacity="0.9" />
+                    <circle cx={tPos.x} cy={tPos.y} r="1.5" fill="white" opacity="0.9" />
+                  </g>
+                );
+              })()}
               {isFirstPersonMode && minimapPose && (
                 <g transform={`translate(${minimapPose.x}, ${minimapPose.y}) rotate(${minimapPose.angleDeg})`}>
                   <path d="M0 0 L-18 -45 L18 -45 Z" fill="rgba(19,127,236,0.35)" />

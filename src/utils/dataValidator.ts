@@ -146,5 +146,10 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
     furnitureIds.add(furnitureValue.id);
   }
 
+  if (value.tourStartPoint !== undefined) {
+    const tsp = value.tourStartPoint as Record<string, unknown>;
+    if (!isPoint2D(tsp.position) || !isFiniteNumber(tsp.angleDeg)) return false;
+  }
+
   return true;
 };

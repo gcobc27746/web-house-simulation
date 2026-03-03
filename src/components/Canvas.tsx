@@ -8,6 +8,7 @@ import type {
   FloorplanScale,
   Point2D,
   StaircaseLinkItem,
+  TourStartPoint,
   WallSegment,
   WindowOpening,
   WindowType,
@@ -57,6 +58,12 @@ interface CanvasProps {
   onStaircaseLinkClick?: (worldPoint: Point2D) => void;
   onSelectStaircaseLink?: (id: string | null) => void;
   onMoveStaircaseLinkPoint?: (id: string, end: "a" | "b", worldPoint: Point2D) => void;
+  onUpdateStaircaseLinkAngle?: (id: string, end: "a" | "b", angleDeg: number) => void;
+  tourStartPoint?: TourStartPoint | null;
+  isTourMode?: boolean;
+  onSetTourStart?: (pos: Point2D, angleDeg?: number) => void;
+  onMoveTourStart?: (pos: Point2D) => void;
+  onUpdateTourAngle?: (angleDeg: number) => void;
   className?: string;
   onCanvasStatusChange?: (status: {
     cursor: Point2D | null;
@@ -119,6 +126,12 @@ export function Canvas({
   onStaircaseLinkClick,
   onSelectStaircaseLink,
   onMoveStaircaseLinkPoint,
+  onUpdateStaircaseLinkAngle,
+  tourStartPoint,
+  isTourMode = false,
+  onSetTourStart,
+  onMoveTourStart,
+  onUpdateTourAngle,
   className,
   onCanvasStatusChange,
 }: CanvasProps) {
@@ -376,6 +389,11 @@ export function Canvas({
     if (!scale || !pendingLinkA) return null;
     return meterToPixel(pendingLinkA.x, pendingLinkA.y, scale.pixelsPerMeter);
   }, [pendingLinkA, scale]);
+
+  const pixelTourStart = useMemo(() => {
+    if (!scale || !tourStartPoint) return null;
+    return meterToPixel(tourStartPoint.position.x, tourStartPoint.position.y, scale.pixelsPerMeter);
+  }, [tourStartPoint, scale]);
 
   const clipSegmentWithRect = (
     start: Point2D,
@@ -671,6 +689,9 @@ export function Canvas({
     if (event.target.hasName("staircase-link-marker")) {
       return;
     }
+    if (event.target.hasName("tour-start-pin")) {
+      return;
+    }
 
     const stage = event.target.getStage();
     if (!stage) return;
@@ -683,6 +704,12 @@ export function Canvas({
 
     if (isCalibrationMode) {
       onAddMeasurementPoint(imagePoint);
+      return;
+    }
+
+    if (isTourMode && scale) {
+      const meterPoint = pixelToMeter(imagePoint.x, imagePoint.y, scale.pixelsPerMeter);
+      onSetTourStart?.(meterPoint);
       return;
     }
 
@@ -1004,32 +1031,57 @@ export function Canvas({
                   const fontSize = 10 / transform.scale;
                   const strokeW = (link.selected ? 2.5 : 1.5) / transform.scale;
 
-                  // Helper: build arrow tip points given a minimap-degrees angle
-                  const arrowPoints = (angleDeg: number) => {
-                    const rad = (angleDeg * Math.PI) / 180;
-                    const dx = Math.sin(rad);
-                    const dy = -Math.cos(rad); // flip Y: minimap north is pixel-up
-                    const len = 20 / transform.scale;
-                    const back = 5 / transform.scale;
-                    const wing = 3 / transform.scale;
-                    const ex = dx * len;
-                    const ey = dy * len;
-                    return {
-                      shaft: [0, 0, ex, ey],
-                      head: [
-                        ex, ey,
-                        ex - dx * back + (-dy) * wing, ey - dy * back + dx * wing,
-                        ex - dx * back - (-dy) * wing, ey - dy * back - dx * wing,
-                      ],
-                    };
+                  // Arrow rendered at a constant screen size of ARROW_PX stage-pixels
+                  const ARROW_PX = 32; // length in screen-pixels (stage space)
+                  const L = ARROW_PX / transform.scale; // length in canvas-group (image pixel) space
+
+                  // Direction vector from minimap angle (0=north/-Y, 90=east/+X)
+                  const angleDir = (deg: number) => {
+                    const rad = (deg * Math.PI) / 180;
+                    return { dx: Math.sin(rad), dy: -Math.cos(rad) };
                   };
 
-                  const arrowA = arrowPoints(link.arrivalAngleAtA ?? 180);
-                  const arrowB = arrowPoints(link.arrivalAngleAtB ?? 0);
+                  const dirA = angleDir(link.arrivalAngleAtA ?? 180);
+                  const dirB = angleDir(link.arrivalAngleAtB ?? 0);
+
+                  // Tip positions in canvas-group (image pixel) coordinates
+                  const tipA = { x: link.pixelA.x + dirA.dx * L, y: link.pixelA.y + dirA.dy * L };
+                  const tipB = { x: link.pixelB.x + dirB.dx * L, y: link.pixelB.y + dirB.dy * L };
+
+                  // Arrowhead triangle points (in canvas-group coords)
+                  const headPoints = (tip: { x: number; y: number }, dir: { dx: number; dy: number }) => {
+                    const back = 8 / transform.scale;
+                    const wing = 5 / transform.scale;
+                    return [
+                      tip.x, tip.y,
+                      tip.x - dir.dx * back + (-dir.dy) * wing, tip.y - dir.dy * back + dir.dx * wing,
+                      tip.x - dir.dx * back - (-dir.dy) * wing, tip.y - dir.dy * back - dir.dx * wing,
+                    ];
+                  };
+
+                  // dragBoundFunc: constrains tip drag to ARROW_PX circle in stage space around the portal center
+                  const makeTipBound = (cx_img: number, cy_img: number) =>
+                    (pos: { x: number; y: number }) => {
+                      const cx = transform.x + cx_img * transform.scale;
+                      const cy = transform.y + cy_img * transform.scale;
+                      const ddx = pos.x - cx;
+                      const ddy = pos.y - cy;
+                      const dist = Math.hypot(ddx, ddy);
+                      if (dist < 0.1) return { x: cx, y: cy - ARROW_PX };
+                      return { x: cx + (ddx / dist) * ARROW_PX, y: cy + (ddy / dist) * ARROW_PX };
+                    };
+
+                  // Compute minimap angle from dragged tip local position (canvas-group coords)
+                  const tipAngle = (tipLocalX: number, tipLocalY: number, cxImg: number, cyImg: number) => {
+                    const ddx = tipLocalX - cxImg;
+                    const ddy = tipLocalY - cyImg;
+                    const deg = Math.atan2(ddx, -ddy) * (180 / Math.PI);
+                    return Math.round(((deg % 360) + 360) % 360);
+                  };
 
                   return (
                     <Group key={link.id}>
-                      {/* Connecting dashed line */}
+                      {/* Connecting dashed line between A and B */}
                       <Line
                         points={[link.pixelA.x, link.pixelA.y, link.pixelB.x, link.pixelB.y]}
                         stroke={link.color}
@@ -1039,7 +1091,92 @@ export function Canvas({
                         opacity={link.selected ? 0.9 : 0.55}
                         listening={false}
                       />
-                      {/* Point A */}
+
+                      {/* ── Arrival arrow at A (arrivalAngleAtA: direction when landing at A from B) ── */}
+                      <Line
+                        points={[link.pixelA.x, link.pixelA.y, tipA.x, tipA.y]}
+                        stroke="#fff"
+                        strokeWidth={2.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        opacity={0.8}
+                        listening={false}
+                      />
+                      <Line
+                        points={headPoints(tipA, dirA)}
+                        closed
+                        fill="#fff"
+                        stroke="transparent"
+                        opacity={0.8}
+                        listening={false}
+                      />
+                      {/* Draggable tip handle for arrow A */}
+                      <Circle
+                        name="staircase-link-marker"
+                        x={tipA.x}
+                        y={tipA.y}
+                        radius={7 / transform.scale}
+                        fill={link.color}
+                        stroke="#fff"
+                        strokeWidth={1.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        opacity={0.95}
+                        draggable={isStaircaseLinkMode}
+                        dragBoundFunc={makeTipBound(link.pixelA.x, link.pixelA.y)}
+                        onMouseDown={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragStart={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragMove={(e) => {
+                          e.cancelBubble = true;
+                          onUpdateStaircaseLinkAngle?.(link.id, "a", tipAngle(e.target.x(), e.target.y(), link.pixelA.x, link.pixelA.y));
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          onUpdateStaircaseLinkAngle?.(link.id, "a", tipAngle(e.target.x(), e.target.y(), link.pixelA.x, link.pixelA.y));
+                        }}
+                      />
+
+                      {/* ── Arrival arrow at B (arrivalAngleAtB: direction when landing at B from A) ── */}
+                      <Line
+                        points={[link.pixelB.x, link.pixelB.y, tipB.x, tipB.y]}
+                        stroke="#fff"
+                        strokeWidth={2.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        opacity={0.8}
+                        listening={false}
+                      />
+                      <Line
+                        points={headPoints(tipB, dirB)}
+                        closed
+                        fill="#fff"
+                        stroke="transparent"
+                        opacity={0.8}
+                        listening={false}
+                      />
+                      {/* Draggable tip handle for arrow B */}
+                      <Circle
+                        name="staircase-link-marker"
+                        x={tipB.x}
+                        y={tipB.y}
+                        radius={7 / transform.scale}
+                        fill={link.color}
+                        stroke="#fff"
+                        strokeWidth={1.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        opacity={0.95}
+                        draggable={isStaircaseLinkMode}
+                        dragBoundFunc={makeTipBound(link.pixelB.x, link.pixelB.y)}
+                        onMouseDown={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragStart={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragMove={(e) => {
+                          e.cancelBubble = true;
+                          onUpdateStaircaseLinkAngle?.(link.id, "b", tipAngle(e.target.x(), e.target.y(), link.pixelB.x, link.pixelB.y));
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          onUpdateStaircaseLinkAngle?.(link.id, "b", tipAngle(e.target.x(), e.target.y(), link.pixelB.x, link.pixelB.y));
+                        }}
+                      />
+
+                      {/* ── Portal A marker (draggable to move position) ── */}
                       <Group
                         name="staircase-link-marker"
                         x={link.pixelA.x}
@@ -1057,11 +1194,9 @@ export function Canvas({
                       >
                         <Circle radius={r} fill={link.color} opacity={0.85} stroke={link.selected ? "#fff" : link.color} strokeWidth={strokeW} strokeScaleEnabled={false} />
                         <Text text="A" fontSize={fontSize} fontStyle="bold" fill="#fff" align="center" verticalAlign="middle" x={-r} y={-r} width={r * 2} height={r * 2} listening={false} />
-                        {/* Arrival direction arrow (direction player faces when arriving here from B) */}
-                        <Line points={arrowA.shaft} stroke="#fff" strokeWidth={1.5 / transform.scale} strokeScaleEnabled={false} opacity={0.75} listening={false} />
-                        <Line points={arrowA.head} closed fill="#fff" stroke="transparent" opacity={0.75} listening={false} />
                       </Group>
-                      {/* Point B */}
+
+                      {/* ── Portal B marker (draggable to move position) ── */}
                       <Group
                         name="staircase-link-marker"
                         x={link.pixelB.x}
@@ -1080,9 +1215,6 @@ export function Canvas({
                         <Circle radius={r} fill="transparent" stroke={link.color} strokeWidth={(link.selected ? 2.5 : 2) / transform.scale} strokeScaleEnabled={false} />
                         <Circle radius={r * 0.55} fill={link.color} opacity={0.85} listening={false} />
                         <Text text="B" fontSize={fontSize} fontStyle="bold" fill="#fff" align="center" verticalAlign="middle" x={-r} y={-r} width={r * 2} height={r * 2} listening={false} />
-                        {/* Arrival direction arrow (direction player faces when arriving here from A) */}
-                        <Line points={arrowB.shaft} stroke="#fff" strokeWidth={1.5 / transform.scale} strokeScaleEnabled={false} opacity={0.75} listening={false} />
-                        <Line points={arrowB.head} closed fill="#fff" stroke="transparent" opacity={0.75} listening={false} />
                       </Group>
                     </Group>
                   );
@@ -1115,6 +1247,123 @@ export function Canvas({
                     />
                   </Group>
                 )}
+                {/* ── Tour start point pin ── */}
+                {pixelTourStart && tourStartPoint && (() => {
+                  const PIN_R_PX = 10;
+                  const TOUR_ARROW_PX = 32;
+
+                  const r = PIN_R_PX / transform.scale;
+                  const arrowL = TOUR_ARROW_PX / transform.scale;
+
+                  // anchor = circle center = pixelTourStart
+                  const cx = pixelTourStart.x;
+                  const cy = pixelTourStart.y;
+
+                  const rad = (tourStartPoint.angleDeg * Math.PI) / 180;
+                  const dirDx = Math.sin(rad);
+                  const dirDy = -Math.cos(rad);
+
+                  const tipAbsX = cx + dirDx * arrowL;
+                  const tipAbsY = cy + dirDy * arrowL;
+
+                  const back = 8 / transform.scale;
+                  const wing = 5 / transform.scale;
+                  const arrowHeadPts = [
+                    tipAbsX, tipAbsY,
+                    tipAbsX - dirDx * back + (-dirDy) * wing, tipAbsY - dirDy * back + dirDx * wing,
+                    tipAbsX - dirDx * back - (-dirDy) * wing, tipAbsY - dirDy * back - dirDx * wing,
+                  ];
+
+                  // dragBoundFunc for arrow tip: constrained to TOUR_ARROW_PX circle around center in stage coords
+                  const tourTipBound = (pos: { x: number; y: number }) => {
+                    const scx = transform.x + cx * transform.scale;
+                    const scy = transform.y + cy * transform.scale;
+                    const ddx = pos.x - scx;
+                    const ddy = pos.y - scy;
+                    const dist = Math.hypot(ddx, ddy);
+                    if (dist < 0.1) return { x: scx, y: scy - TOUR_ARROW_PX };
+                    return { x: scx + (ddx / dist) * TOUR_ARROW_PX, y: scy + (ddy / dist) * TOUR_ARROW_PX };
+                  };
+
+                  return (
+                    <Group key="tour-start-group">
+                      {/* Circle: draggable, centered on anchor */}
+                      <Circle
+                        name="tour-start-pin"
+                        x={cx}
+                        y={cy}
+                        radius={r}
+                        fill="#137fec"
+                        stroke="#0a4fa0"
+                        strokeWidth={1.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        draggable={isTourMode}
+                        onMouseDown={(e) => { e.cancelBubble = true; }}
+                        onClick={(e) => { e.cancelBubble = true; }}
+                        onDragStart={(e) => { e.cancelBubble = true; }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          if (!scale) return;
+                          const clamped = clampToImageBounds({ x: e.target.x(), y: e.target.y() });
+                          onMoveTourStart?.(pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter));
+                        }}
+                      />
+                      {/* White dot inside */}
+                      <Circle
+                        x={cx}
+                        y={cy}
+                        radius={r * 0.38}
+                        fill="white"
+                        listening={false}
+                      />
+                      {/* Arrow stem */}
+                      <Line
+                        points={[cx, cy, tipAbsX, tipAbsY]}
+                        stroke="#137fec"
+                        strokeWidth={2.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        listening={false}
+                      />
+                      {/* Arrowhead triangle */}
+                      <Line
+                        points={arrowHeadPts}
+                        closed
+                        fill="#137fec"
+                        stroke="#137fec"
+                        strokeWidth={1 / transform.scale}
+                        strokeScaleEnabled={false}
+                        listening={false}
+                      />
+                      {/* Draggable arrow tip handle */}
+                      <Circle
+                        name="tour-start-pin"
+                        x={tipAbsX}
+                        y={tipAbsY}
+                        radius={7 / transform.scale}
+                        fill="rgba(19,127,236,0.35)"
+                        stroke="#137fec"
+                        strokeWidth={1.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        draggable={isTourMode}
+                        dragBoundFunc={tourTipBound}
+                        onMouseDown={(e) => { e.cancelBubble = true; }}
+                        onDragMove={(e) => {
+                          e.cancelBubble = true;
+                          const ddx = e.target.x() - cx;
+                          const ddy = e.target.y() - cy;
+                          const deg = Math.atan2(ddx, -ddy) * (180 / Math.PI);
+                          onUpdateTourAngle?.(Math.round(((deg % 360) + 360) % 360));
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          e.target.x(tipAbsX);
+                          e.target.y(tipAbsY);
+                        }}
+                      />
+                    </Group>
+                  );
+                })()}
+
                 {selectionRect && (
                   <Rect
                     x={selectionRect.x}
