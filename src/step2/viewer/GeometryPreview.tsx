@@ -160,6 +160,10 @@ export function GeometryPreview({
   const joystickOriginRef = useRef<{ x: number; y: number } | null>(null);
   const lookTouchIdRef = useRef<number | null>(null);
   const lookTouchLastRef = useRef<{ x: number; y: number } | null>(null);
+  const portalRootRef = useRef<THREE.Group | null>(null);
+  const staircaseLinksRef = useRef<FloorplanData["staircaseLinks"]>([]);
+  const teleportCooldownRef = useRef<number>(-Infinity);
+  const teleportFlashRef = useRef<HTMLDivElement | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [isFirstPersonMode, setIsFirstPersonMode] = useState(false);
   const [isPointerLocked, setIsPointerLocked] = useState(false);
@@ -209,6 +213,10 @@ export function GeometryPreview({
   useEffect(() => {
     minimapBoundsRef.current = minimapBounds;
   }, [minimapBounds]);
+
+  useEffect(() => {
+    staircaseLinksRef.current = floorplanData.staircaseLinks ?? [];
+  }, [floorplanData.staircaseLinks]);
 
   const minimapWallPaths = useMemo(() => {
     const walls = floorplanData.walls ?? [];
@@ -591,6 +599,53 @@ export function GeometryPreview({
         orbitControlsRef.current.update();
       }
 
+      // Teleport portal check (first-person mode only, 2-second cooldown)
+      if (isFirstPersonModeRef.current) {
+        const links = staircaseLinksRef.current;
+        if (links && links.length > 0 && timestamp - teleportCooldownRef.current > 2000) {
+          for (const link of links) {
+            const distA = Math.hypot(
+              camera.position.x - link.positionA.x,
+              camera.position.z - link.positionA.y,
+            );
+            if (distA < 0.6) {
+              // A → B: land at B, face arrivalAngleAtB, push forward
+              const arrivalY = -(link.arrivalAngleAtB ?? 0) * (Math.PI / 180);
+              camera.rotation.y = arrivalY;
+              camera.rotation.x = 0;
+              camera.position.x = link.positionB.x + (-Math.sin(arrivalY)) * 0.85;
+              camera.position.z = link.positionB.y + (-Math.cos(arrivalY)) * 0.85;
+              teleportCooldownRef.current = timestamp;
+              const flashEl = teleportFlashRef.current;
+              if (flashEl) {
+                flashEl.style.opacity = "0.9";
+                setTimeout(() => { if (flashEl) flashEl.style.opacity = "0"; }, 200);
+              }
+              break;
+            }
+            const distB = Math.hypot(
+              camera.position.x - link.positionB.x,
+              camera.position.z - link.positionB.y,
+            );
+            if (distB < 0.6) {
+              // B → A: land at A, face arrivalAngleAtA, push forward
+              const arrivalY = -(link.arrivalAngleAtA ?? 180) * (Math.PI / 180);
+              camera.rotation.y = arrivalY;
+              camera.rotation.x = 0;
+              camera.position.x = link.positionA.x + (-Math.sin(arrivalY)) * 0.85;
+              camera.position.z = link.positionA.y + (-Math.cos(arrivalY)) * 0.85;
+              teleportCooldownRef.current = timestamp;
+              const flashEl = teleportFlashRef.current;
+              if (flashEl) {
+                flashEl.style.opacity = "0.9";
+                setTimeout(() => { if (flashEl) flashEl.style.opacity = "0"; }, 200);
+              }
+              break;
+            }
+          }
+        }
+      }
+
       const forwardForMap = new THREE.Vector3();
       if (controlsRef.current) {
         controlsRef.current.getDirection(forwardForMap);
@@ -796,6 +851,47 @@ export function GeometryPreview({
     rebuildDebugVisuals();
     renderScene();
   }, [showCollisionDebug]);
+
+  // Build / rebuild portal disc meshes whenever staircase links change
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    if (portalRootRef.current) {
+      scene.remove(portalRootRef.current);
+      portalRootRef.current.traverse(disposeObject3D);
+      portalRootRef.current = null;
+    }
+
+    const links = floorplanData.staircaseLinks ?? [];
+    if (links.length > 0) {
+      const portalRoot = new THREE.Group();
+      for (const link of links) {
+        const geoA = new THREE.CylinderGeometry(0.4, 0.4, 0.04, 24);
+        const matA = new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.82 });
+        const discA = new THREE.Mesh(geoA, matA);
+        discA.position.set(link.positionA.x, 0.02, link.positionA.y);
+        portalRoot.add(discA);
+
+        const geoB = new THREE.CylinderGeometry(0.4, 0.4, 0.04, 24);
+        const matB = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.82 });
+        const discB = new THREE.Mesh(geoB, matB);
+        discB.position.set(link.positionB.x, 0.02, link.positionB.y);
+        portalRoot.add(discB);
+      }
+      scene.add(portalRoot);
+      portalRootRef.current = portalRoot;
+    }
+    renderScene();
+
+    return () => {
+      if (portalRootRef.current) {
+        sceneRef.current?.remove(portalRootRef.current);
+        portalRootRef.current.traverse(disposeObject3D);
+        portalRootRef.current = null;
+      }
+    };
+  }, [floorplanData.staircaseLinks]);
 
   useEffect(() => {
     const camera = cameraRef.current;
@@ -1242,6 +1338,13 @@ export function GeometryPreview({
       <main className="relative min-w-0 flex-1 overflow-hidden bg-[#0f1115]">
         <div ref={mountRef} className="geometry-canvas h-full w-full" />
 
+        {/* Teleport flash overlay */}
+        <div
+          ref={teleportFlashRef}
+          className="pointer-events-none absolute inset-0 z-50 bg-white opacity-0"
+          style={{ transition: "opacity 0.35s ease" }}
+        />
+
         {/* Mobile settings toggle */}
         <button
           type="button"
@@ -1336,6 +1439,14 @@ export function GeometryPreview({
                   strokeLinecap="round"
                 />
               ))}
+              {(floorplanData.staircaseLinks ?? []).flatMap((link) => {
+                const posA = normalizeToMinimap(link.positionA.x, link.positionA.y, minimapBounds);
+                const posB = normalizeToMinimap(link.positionB.x, link.positionB.y, minimapBounds);
+                return [
+                  <circle key={`${link.id}-a`} cx={posA.x} cy={posA.y} r="5" fill="#4ade80" stroke="#fff" strokeWidth="1" opacity="0.9" />,
+                  <circle key={`${link.id}-b`} cx={posB.x} cy={posB.y} r="5" fill="#f97316" stroke="#fff" strokeWidth="1" opacity="0.9" />,
+                ];
+              })}
               {isFirstPersonMode && minimapPose && (
                 <g transform={`translate(${minimapPose.x}, ${minimapPose.y}) rotate(${minimapPose.angleDeg})`}>
                   <path d="M0 0 L-18 -45 L18 -45 Z" fill="rgba(19,127,236,0.35)" />

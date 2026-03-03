@@ -21,6 +21,11 @@ const withUpdatedAt = (data: FloorplanData): FloorplanData => ({
 const normalizeFloorplanData = (data: FloorplanData): FloorplanData => ({
   ...data,
   windows: data.windows ?? [],
+  staircaseLinks: (data.staircaseLinks ?? []).map((link) => ({
+    ...link,
+    arrivalAngleAtB: link.arrivalAngleAtB ?? 0,
+    arrivalAngleAtA: link.arrivalAngleAtA ?? 180,
+  })),
   furniture: (data.furniture ?? []).map((item) => {
     const legacyType = (item as unknown as { type?: string }).type;
     if (!item.catalogId && legacyType === "bed") {

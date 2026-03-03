@@ -91,6 +91,19 @@ export interface FurnitureCatalogItem {
       };
 }
 
+/** A teleport portal pair: stepping on A teleports to B and vice-versa */
+export interface StaircaseLinkItem {
+  id: string;
+  /** Entry point (A) in world coordinates */
+  positionA: Point2D;
+  /** Exit point (B) in world coordinates */
+  positionB: Point2D;
+  /** Camera Y-angle (minimap degrees, 0=north/-Z, 90=east/+X) applied when arriving at B from A */
+  arrivalAngleAtB: number;
+  /** Camera Y-angle (minimap degrees) applied when arriving at A from B */
+  arrivalAngleAtA: number;
+}
+
 export interface FloorplanData {
   meta: FloorplanMeta;
   scale?: FloorplanScale;
@@ -99,5 +112,6 @@ export interface FloorplanData {
   polygons: FloorplanPolygon[];
   windows: WindowOpening[];
   furniture: FurnitureItem[];
+  staircaseLinks: StaircaseLinkItem[];
 }
 

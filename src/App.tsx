@@ -7,6 +7,7 @@ import { getFurnitureCatalogItem } from "./furniture/catalog";
 import { useFloorplanStorage } from "./hooks/useFloorplanStorage";
 import { type LoadedImagePayload, useImageUpload } from "./hooks/useImageUpload";
 import { useScaleCalibration } from "./hooks/useScaleCalibration";
+import { useStaircaseLinkMarking } from "./hooks/useStaircaseLinkMarking";
 import { useWallDrawing } from "./hooks/useWallDrawing";
 import { useWindowMarking } from "./hooks/useWindowMarking";
 import { GeometryPreview } from "./step2/viewer/GeometryPreview";
@@ -35,7 +36,7 @@ const WINDOW_BALCONY_ICON = new URL("../resources/icons/balcony.svg", import.met
 const nowIso = () => new Date().toISOString();
 type ViewMode = "design" | "viewer";
 type TopMenu = "file" | "edit" | "view";
-type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture";
+type ToolMode = "upload" | "calibrate" | "wall" | "window" | "furniture" | "staircase";
 type ToolIcon =
   | { kind: "material"; name: string }
   | { kind: "svg"; src: string };
@@ -52,6 +53,7 @@ const TOOL_ITEMS: Array<{ key: ToolMode; label: string }> = [
   { key: "wall", label: "牆線" },
   { key: "window", label: "窗戶" },
   { key: "furniture", label: "家具" },
+  { key: "staircase", label: "傳送" },
 ];
 
 const WINDOW_TYPE_OPTIONS: Array<{ type: WindowType; label: string; iconSrc: string }> = [
@@ -108,6 +110,7 @@ function createInitialData(): FloorplanData {
     polygons: [],
     windows: [],
     furniture: [],
+    staircaseLinks: [],
   };
 }
 
@@ -182,19 +185,21 @@ export default function App() {
   const calibration = useScaleCalibration();
   const wallDrawing = useWallDrawing();
   const windowMarking = useWindowMarking();
+  const staircaseLinkMarking = useStaircaseLinkMarking();
   const imageUpload = useImageUpload();
 
   const resetWorkspaceData = useCallback(() => {
     calibration.resetCalibration();
     wallDrawing.resetWalls();
     windowMarking.resetWindows();
+    staircaseLinkMarking.resetLinks();
     setFurniture([]);
     setSelectedFurnitureId(null);
     setUploadedImage(null);
     setIsDistanceDialogOpen(false);
     setLayerVisibility(DEFAULT_LAYER_VISIBILITY);
     setFloorplanData(createInitialData());
-  }, [calibration, wallDrawing, windowMarking]);
+  }, [calibration, wallDrawing, windowMarking, staircaseLinkMarking]);
 
   const applyLoadedData = useCallback(
     (nextData: FloorplanData) => {
@@ -202,12 +207,13 @@ export default function App() {
       calibration.hydrateScale(nextData.scale ?? null);
       wallDrawing.hydrateWalls(nextData.walls);
       windowMarking.hydrateWindows(nextData.windows ?? []);
+      staircaseLinkMarking.hydrateLinks(nextData.staircaseLinks ?? []);
       setFurniture(nextData.furniture ?? []);
       setSelectedFurnitureId(null);
       setIsDistanceDialogOpen(false);
       setUploadedImage(null);
     },
-    [calibration, wallDrawing, windowMarking],
+    [calibration, wallDrawing, windowMarking, staircaseLinkMarking],
   );
 
   const storage = useFloorplanStorage(floorplanData, applyLoadedData);
@@ -231,6 +237,7 @@ export default function App() {
         calibration.hydrateScale(dataWithImage.scale ?? null);
         wallDrawing.hydrateWalls(dataWithImage.walls);
         windowMarking.hydrateWindows(dataWithImage.windows ?? []);
+        staircaseLinkMarking.hydrateLinks(dataWithImage.staircaseLinks ?? []);
         setFurniture(dataWithImage.furniture ?? []);
         setSelectedFurnitureId(null);
       } else {
@@ -387,6 +394,7 @@ export default function App() {
     calibration.resetCalibration();
     wallDrawing.resetWalls();
     windowMarking.resetWindows();
+    staircaseLinkMarking.resetLinks();
     setFurniture([]);
     setSelectedFurnitureId(null);
     setFloorplanData((previous) => ({
@@ -396,6 +404,7 @@ export default function App() {
       polygons: [],
       windows: [],
       furniture: [],
+      staircaseLinks: [],
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
@@ -432,12 +441,13 @@ export default function App() {
       polygons: wallDrawing.polygons,
       windows: windowMarking.windows,
       furniture,
+      staircaseLinks: staircaseLinkMarking.links,
       meta: {
         ...previous.meta,
         updatedAt: nowIso(),
       },
     }));
-  }, [furniture, wallDrawing.walls, wallDrawing.polygons, windowMarking.windows]);
+  }, [furniture, wallDrawing.walls, wallDrawing.polygons, windowMarking.windows, staircaseLinkMarking.links]);
 
   const addFurniture = (catalogId: FurnitureCatalogId) => {
     const catalogItem = getFurnitureCatalogItem(catalogId);
@@ -487,6 +497,10 @@ export default function App() {
           deleteSelectedFurniture();
           return;
         }
+        if (staircaseLinkMarking.selectedLinkId) {
+          staircaseLinkMarking.deleteLink(staircaseLinkMarking.selectedLinkId);
+          return;
+        }
         if (windowMarking.selectedWindowId) {
           windowMarking.deleteWindow(windowMarking.selectedWindowId);
           return;
@@ -498,6 +512,7 @@ export default function App() {
       if (event.key === "Escape") {
         wallDrawing.cancelCurrentWall();
         windowMarking.cancelDraft();
+        staircaseLinkMarking.stopMarking();
       }
     };
 
@@ -509,6 +524,9 @@ export default function App() {
     wallDrawing.deleteWall,
     wallDrawing.selectedWallId,
     selectedFurnitureId,
+    staircaseLinkMarking.selectedLinkId,
+    staircaseLinkMarking.deleteLink,
+    staircaseLinkMarking.stopMarking,
     windowMarking.cancelDraft,
     windowMarking.deleteWindow,
     windowMarking.selectedWindowId,
@@ -564,6 +582,7 @@ export default function App() {
     wall: { kind: "svg", src: activeWallOption.iconSrc },
     window: { kind: "svg", src: activeWindowOption.iconSrc },
     furniture: { kind: "material", name: "chair" },
+    staircase: { kind: "material", name: "elevator" },
   };
 
   const handleToolButtonClick = (tool: ToolMode) => {
@@ -571,6 +590,9 @@ export default function App() {
     setActiveTool(tool);
     if (tool === "furniture") {
       setIsFurnitureDrawerOpen((previous) => (activeTool === "furniture" ? !previous : true));
+    }
+    if (tool !== "staircase") {
+      staircaseLinkMarking.stopMarking();
     }
   };
 
@@ -788,6 +810,91 @@ export default function App() {
             刪除選取家具
           </button>
           <span className="text-xs text-slate-400">家具：{furniture.length}</span>
+        </>
+      );
+    }
+
+    if (activeTool === "staircase") {
+      const isMarking = staircaseLinkMarking.markingState !== "idle";
+      const isWaitingB = staircaseLinkMarking.markingState === "waiting-b";
+      const selectedLink = staircaseLinkMarking.links.find(
+        (l) => l.id === staircaseLinkMarking.selectedLinkId,
+      ) ?? null;
+      return (
+        <>
+          <button
+            type="button"
+            className="btn h-8 px-3 py-0 text-xs"
+            onClick={() => {
+              if (isMarking) {
+                staircaseLinkMarking.stopMarking();
+              } else {
+                staircaseLinkMarking.startMarking();
+              }
+            }}
+            disabled={!uploadedImage || !calibration.scale}
+          >
+            {isMarking ? "停止標記" : "建立傳送連結"}
+          </button>
+          {isMarking && (
+            <span className="rounded-full border border-primary/30 bg-primary/15 px-3 py-1 text-xs text-primary">
+              {isWaitingB ? "點選 B 點（目的地）" : "點選 A 點（起點）"}
+            </span>
+          )}
+          {selectedLink && !isMarking && (
+            <>
+              <div className="h-5 w-px bg-white/10" />
+              <span className="text-xs text-slate-400">A→B 視角</span>
+              <input
+                type="number"
+                min={0}
+                max={359}
+                step={5}
+                value={selectedLink.arrivalAngleAtB}
+                onChange={(e) =>
+                  staircaseLinkMarking.updateLinkAngles(
+                    selectedLink.id,
+                    selectedLink.arrivalAngleAtA,
+                    ((Number(e.target.value) % 360) + 360) % 360,
+                  )
+                }
+                className="w-16 rounded border border-border-dark bg-surface-darker px-2 py-0.5 text-center text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-xs text-slate-500">°</span>
+              <span className="text-xs text-slate-400">B→A 視角</span>
+              <input
+                type="number"
+                min={0}
+                max={359}
+                step={5}
+                value={selectedLink.arrivalAngleAtA}
+                onChange={(e) =>
+                  staircaseLinkMarking.updateLinkAngles(
+                    selectedLink.id,
+                    ((Number(e.target.value) % 360) + 360) % 360,
+                    selectedLink.arrivalAngleAtB,
+                  )
+                }
+                className="w-16 rounded border border-border-dark bg-surface-darker px-2 py-0.5 text-center text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-xs text-slate-500">°</span>
+            </>
+          )}
+          <div className="h-5 w-px bg-white/10" />
+          <button
+            type="button"
+            className="rounded-lg border border-rose-500/30 px-2 py-1.5 text-xs text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-40"
+            onClick={() => {
+              if (!staircaseLinkMarking.selectedLinkId) return;
+              staircaseLinkMarking.deleteLink(staircaseLinkMarking.selectedLinkId);
+            }}
+            disabled={!staircaseLinkMarking.selectedLinkId}
+          >
+            刪除選取連結
+          </button>
+          <span className="text-xs text-slate-400">
+            傳送連結：{staircaseLinkMarking.links.length}
+          </span>
         </>
       );
     }
@@ -1214,9 +1321,29 @@ export default function App() {
                 if (id) {
                   wallDrawing.selectWall(null);
                   windowMarking.selectWindow(null);
+                  staircaseLinkMarking.selectLink(null);
                 }
               }}
               onMoveFurniture={moveFurniture}
+              staircaseLinks={staircaseLinkMarking.links}
+              selectedStaircaseLinkId={staircaseLinkMarking.selectedLinkId}
+              pendingLinkA={staircaseLinkMarking.pendingA}
+              isStaircaseLinkMode={staircaseLinkMarking.markingState !== "idle"}
+              onStaircaseLinkClick={(worldPoint) => {
+                staircaseLinkMarking.handleLinkClick(worldPoint);
+                wallDrawing.selectWall(null);
+                windowMarking.selectWindow(null);
+                setSelectedFurnitureId(null);
+              }}
+              onSelectStaircaseLink={(id) => {
+                staircaseLinkMarking.selectLink(id);
+                if (id) {
+                  wallDrawing.selectWall(null);
+                  windowMarking.selectWindow(null);
+                  setSelectedFurnitureId(null);
+                }
+              }}
+              onMoveStaircaseLinkPoint={staircaseLinkMarking.moveLinkPoint}
               onCanvasStatusChange={setCanvasStatus}
             />
 

@@ -56,7 +56,8 @@ export const validateFloorplanData = (data: unknown): data is FloorplanData => {
     !Array.isArray(value.walls) ||
     !Array.isArray(value.polygons) ||
     (value.windows !== undefined && !Array.isArray(value.windows)) ||
-    (value.furniture !== undefined && !Array.isArray(value.furniture))
+    (value.furniture !== undefined && !Array.isArray(value.furniture)) ||
+    (value.staircaseLinks !== undefined && !Array.isArray(value.staircaseLinks))
   ) {
     return false;
   }

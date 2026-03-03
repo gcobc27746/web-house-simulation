@@ -7,6 +7,7 @@ import type {
   FloorplanPolygon,
   FloorplanScale,
   Point2D,
+  StaircaseLinkItem,
   WallSegment,
   WindowOpening,
   WindowType,
@@ -49,6 +50,13 @@ interface CanvasProps {
   selectedFurnitureId: string | null;
   onSelectFurniture: (id: string | null) => void;
   onMoveFurniture: (id: string, position: Point2D) => void;
+  staircaseLinks?: StaircaseLinkItem[];
+  selectedStaircaseLinkId?: string | null;
+  pendingLinkA?: Point2D | null;
+  isStaircaseLinkMode?: boolean;
+  onStaircaseLinkClick?: (worldPoint: Point2D) => void;
+  onSelectStaircaseLink?: (id: string | null) => void;
+  onMoveStaircaseLinkPoint?: (id: string, end: "a" | "b", worldPoint: Point2D) => void;
   className?: string;
   onCanvasStatusChange?: (status: {
     cursor: Point2D | null;
@@ -104,6 +112,13 @@ export function Canvas({
   selectedFurnitureId,
   onSelectFurniture,
   onMoveFurniture,
+  staircaseLinks = [],
+  selectedStaircaseLinkId = null,
+  pendingLinkA = null,
+  isStaircaseLinkMode = false,
+  onStaircaseLinkClick,
+  onSelectStaircaseLink,
+  onMoveStaircaseLinkPoint,
   className,
   onCanvasStatusChange,
 }: CanvasProps) {
@@ -344,6 +359,24 @@ export function Canvas({
     });
   }, [furniture, scale, selectedFurnitureId]);
 
+  const LINK_COLORS = ["#f97316", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899", "#f59e0b"];
+
+  const pixelStaircaseLinks = useMemo(() => {
+    if (!scale) return [];
+    return staircaseLinks.map((link, idx) => ({
+      ...link,
+      pixelA: meterToPixel(link.positionA.x, link.positionA.y, scale.pixelsPerMeter),
+      pixelB: meterToPixel(link.positionB.x, link.positionB.y, scale.pixelsPerMeter),
+      color: LINK_COLORS[idx % LINK_COLORS.length],
+      selected: selectedStaircaseLinkId === link.id,
+    }));
+  }, [staircaseLinks, scale, selectedStaircaseLinkId]);
+
+  const pixelPendingA = useMemo(() => {
+    if (!scale || !pendingLinkA) return null;
+    return meterToPixel(pendingLinkA.x, pendingLinkA.y, scale.pixelsPerMeter);
+  }, [pendingLinkA, scale]);
+
   const clipSegmentWithRect = (
     start: Point2D,
     end: Point2D,
@@ -558,6 +591,8 @@ export function Canvas({
       if (isInsideImage(imagePoint)) {
         if (isCalibrationMode) {
           onAddMeasurementPoint(imagePoint);
+        } else if (isStaircaseLinkMode && scale) {
+          onStaircaseLinkClick?.(pixelToMeter(imagePoint.x, imagePoint.y, scale.pixelsPerMeter));
         } else if (isDrawingMode && scale) {
           const finalImagePoint = applyDrawingConstraint(imagePoint, false, false);
           const meterPoint = pixelToMeter(finalImagePoint.x, finalImagePoint.y, scale.pixelsPerMeter);
@@ -633,6 +668,9 @@ export function Canvas({
     if (event.target.hasName("furniture-footprint")) {
       return;
     }
+    if (event.target.hasName("staircase-link-marker")) {
+      return;
+    }
 
     const stage = event.target.getStage();
     if (!stage) return;
@@ -645,6 +683,11 @@ export function Canvas({
 
     if (isCalibrationMode) {
       onAddMeasurementPoint(imagePoint);
+      return;
+    }
+
+    if (isStaircaseLinkMode && scale) {
+      onStaircaseLinkClick?.(pixelToMeter(imagePoint.x, imagePoint.y, scale.pixelsPerMeter));
       return;
     }
 
@@ -780,7 +823,7 @@ export function Canvas({
                 y={transform.y}
                 scaleX={transform.scale}
                 scaleY={transform.scale}
-                draggable={!isPinching && !isCalibrationMode && !isWindowMode && (!isDrawingMode || isTabPanning)}
+                draggable={!isPinching && !isCalibrationMode && !isWindowMode && !isStaircaseLinkMode && (!isDrawingMode || isTabPanning)}
                 onDragEnd={(evt) => {
                   if (evt.target.name() !== "canvas-group") return;
                   setTransform((previous) => ({
@@ -956,6 +999,122 @@ export function Canvas({
                       />
                     </Group>
                   ))}
+                {pixelStaircaseLinks.map((link) => {
+                  const r = 11 / transform.scale;
+                  const fontSize = 10 / transform.scale;
+                  const strokeW = (link.selected ? 2.5 : 1.5) / transform.scale;
+
+                  // Helper: build arrow tip points given a minimap-degrees angle
+                  const arrowPoints = (angleDeg: number) => {
+                    const rad = (angleDeg * Math.PI) / 180;
+                    const dx = Math.sin(rad);
+                    const dy = -Math.cos(rad); // flip Y: minimap north is pixel-up
+                    const len = 20 / transform.scale;
+                    const back = 5 / transform.scale;
+                    const wing = 3 / transform.scale;
+                    const ex = dx * len;
+                    const ey = dy * len;
+                    return {
+                      shaft: [0, 0, ex, ey],
+                      head: [
+                        ex, ey,
+                        ex - dx * back + (-dy) * wing, ey - dy * back + dx * wing,
+                        ex - dx * back - (-dy) * wing, ey - dy * back - dx * wing,
+                      ],
+                    };
+                  };
+
+                  const arrowA = arrowPoints(link.arrivalAngleAtA ?? 180);
+                  const arrowB = arrowPoints(link.arrivalAngleAtB ?? 0);
+
+                  return (
+                    <Group key={link.id}>
+                      {/* Connecting dashed line */}
+                      <Line
+                        points={[link.pixelA.x, link.pixelA.y, link.pixelB.x, link.pixelB.y]}
+                        stroke={link.color}
+                        strokeWidth={1.5 / transform.scale}
+                        strokeScaleEnabled={false}
+                        dash={[8 / transform.scale, 5 / transform.scale]}
+                        opacity={link.selected ? 0.9 : 0.55}
+                        listening={false}
+                      />
+                      {/* Point A */}
+                      <Group
+                        name="staircase-link-marker"
+                        x={link.pixelA.x}
+                        y={link.pixelA.y}
+                        draggable={isStaircaseLinkMode}
+                        onMouseDown={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onClick={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragStart={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          if (!scale) return;
+                          const clamped = clampToImageBounds({ x: e.target.x(), y: e.target.y() });
+                          onMoveStaircaseLinkPoint?.(link.id, "a", pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter));
+                        }}
+                      >
+                        <Circle radius={r} fill={link.color} opacity={0.85} stroke={link.selected ? "#fff" : link.color} strokeWidth={strokeW} strokeScaleEnabled={false} />
+                        <Text text="A" fontSize={fontSize} fontStyle="bold" fill="#fff" align="center" verticalAlign="middle" x={-r} y={-r} width={r * 2} height={r * 2} listening={false} />
+                        {/* Arrival direction arrow (direction player faces when arriving here from B) */}
+                        <Line points={arrowA.shaft} stroke="#fff" strokeWidth={1.5 / transform.scale} strokeScaleEnabled={false} opacity={0.75} listening={false} />
+                        <Line points={arrowA.head} closed fill="#fff" stroke="transparent" opacity={0.75} listening={false} />
+                      </Group>
+                      {/* Point B */}
+                      <Group
+                        name="staircase-link-marker"
+                        x={link.pixelB.x}
+                        y={link.pixelB.y}
+                        draggable={isStaircaseLinkMode}
+                        onMouseDown={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onClick={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragStart={(e) => { e.cancelBubble = true; onSelectStaircaseLink?.(link.id); }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          if (!scale) return;
+                          const clamped = clampToImageBounds({ x: e.target.x(), y: e.target.y() });
+                          onMoveStaircaseLinkPoint?.(link.id, "b", pixelToMeter(clamped.x, clamped.y, scale.pixelsPerMeter));
+                        }}
+                      >
+                        <Circle radius={r} fill="transparent" stroke={link.color} strokeWidth={(link.selected ? 2.5 : 2) / transform.scale} strokeScaleEnabled={false} />
+                        <Circle radius={r * 0.55} fill={link.color} opacity={0.85} listening={false} />
+                        <Text text="B" fontSize={fontSize} fontStyle="bold" fill="#fff" align="center" verticalAlign="middle" x={-r} y={-r} width={r * 2} height={r * 2} listening={false} />
+                        {/* Arrival direction arrow (direction player faces when arriving here from A) */}
+                        <Line points={arrowB.shaft} stroke="#fff" strokeWidth={1.5 / transform.scale} strokeScaleEnabled={false} opacity={0.75} listening={false} />
+                        <Line points={arrowB.head} closed fill="#fff" stroke="transparent" opacity={0.75} listening={false} />
+                      </Group>
+                    </Group>
+                  );
+                })}
+                {/* Pending A preview */}
+                {pixelPendingA && (
+                  <Group listening={false}>
+                    <Circle
+                      x={pixelPendingA.x}
+                      y={pixelPendingA.y}
+                      radius={11 / transform.scale}
+                      fill="rgba(249,115,22,0.45)"
+                      stroke="#f97316"
+                      strokeWidth={1.5 / transform.scale}
+                      strokeScaleEnabled={false}
+                      dash={[5 / transform.scale, 3 / transform.scale]}
+                    />
+                    <Text
+                      x={pixelPendingA.x - 11 / transform.scale}
+                      y={pixelPendingA.y - 11 / transform.scale}
+                      width={22 / transform.scale}
+                      height={22 / transform.scale}
+                      text="A"
+                      fontSize={10 / transform.scale}
+                      fontStyle="bold"
+                      fill="#fff"
+                      align="center"
+                      verticalAlign="middle"
+                      listening={false}
+                    />
+                  </Group>
+                )}
                 {selectionRect && (
                   <Rect
                     x={selectionRect.x}
